@@ -1,0 +1,16 @@
+:root {
+  /* Core Palette (60-30-10 rule) */
+  --cream:    #FFFBF5; /* 60% Background */
+  --maroon:   #8B1C3F; /* 30% Secondary/Brand */
+  --gold:     #F4C662; /* 10% Accent/CTA */
+  
+  /* Neutral/System */
+  --text:       #2C1810;
+  --text-muted: #6B5D57;
+  --white:      #FFFFFF;
+  --border:     rgba(44, 24, 16, 0.1);
+  
+  /* Fallbacks/Legacy */
+  --coral:    #E8673A;
+  --golden:   #F4C662;
+}

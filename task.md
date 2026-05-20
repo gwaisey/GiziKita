@@ -1,0 +1,26 @@
+- [x] **Database**
+  - [x] Create `vehicles` table with enum `vehicle_status` (idle, en_route, loading, unloading, delayed, accident, maintenance, offline).
+  - [x] Add optional `vehicle_logs` table for history.
+  - [x] Enable Row Level Security (RLS) and write policies (SELECT for all authenticated users, INSERT/UPDATE for service role).
+- [x] **Backend (Edge Function)**
+  - [x] Scaffold `simulate-vehicles` Edge Function (Deno) to generate random GPS updates and status changes.
+  - [x] Schedule the function to run every 15 s via Supabase Scheduler.
+- [x] **Frontend Store**
+  - [x] Add `js/store/vehicleStore.ts` (Zustand) with `vehicles` state, `loadVehicles()`, `subscribeRealtime()`.
+- [x] **Service Layer**
+  - [x] Add `js/services/VehicleService.ts` (Supabase CRUD wrapper, simulation helper).
+- [x] **Map UI**
+  - [x] Install Mapbox GL JS (`mapbox-gl`, `react-map-gl`).
+  - [x] Create `src/components/VehicleMap.tsx` – renders map, markers coloured by status, info windows.
+  - [x] Add SVG/icon assets for each status (green, orange, red, etc.).
+- [x] **Page & Navigation**
+  - [x] Add `src/app/vehicles/page.tsx` – public page that embeds `<VehicleMap />`.
+  - [x] Insert new navigation link “Vehicle Tracker” in the main nav component (visible to all auth users).
+- [x] **Testing**
+  - [x] Write Vitest unit tests for `VehicleService` and `vehicleStore`.
+  - [x] Write Cypress/Playwright E2E test to verify realtime marker movement.
+- [x] **Documentation**
+  - [x] Update README with a “Vehicle Tracking” section, add screenshots/GIF, and note the `NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN` env variable.
+- [x] **Polish**
+  - [x] Ensure mobile‑responsiveness of the map.
+  - [x] Lazy‑load the map component to keep bundle size low.
