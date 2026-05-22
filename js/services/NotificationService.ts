@@ -107,7 +107,7 @@ class NotificationService {
     if (error || !admins) return;
 
     // 2. Insert notifications for each
-    const notifications = admins.map(admin => ({
+    const notifications = admins.map((admin: { id: string }) => ({
       user_id: admin.id,
       title,
       message,
@@ -130,7 +130,7 @@ class NotificationService {
 
     if (error || !admins || admins.length === 0) return;
 
-    const notifications = admins.map(admin => ({
+    const notifications = admins.map((admin: { id: string }) => ({
       user_id: admin.id,
       title,
       message,
@@ -152,7 +152,7 @@ class NotificationService {
 
     if (error || !users) return;
 
-    const notifications = users.map(user => ({
+    const notifications = users.map((user: { id: string }) => ({
       user_id: user.id,
       title,
       message,
@@ -173,7 +173,7 @@ class NotificationService {
 
     if (error || !users) return;
 
-    const notifications = users.map(user => ({
+    const notifications = users.map((user: { id: string }) => ({
       user_id: user.id,
       title,
       message,
@@ -198,7 +198,7 @@ class NotificationService {
           table: 'notifications',
           filter: `user_id=eq.${userId}`
         },
-        (payload) => {
+        (payload: any) => {
           useNotificationStore.getState().addNotification(payload.new as Notification);
         }
       )

@@ -82,7 +82,7 @@ export const useVehicleStore = create<VehicleState>()(
 
         const channel = supabase
           .channel('public:vehicles')
-          .on('postgres_changes', { event: '*', schema: 'public', table: 'vehicles' }, (payload) => {
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'vehicles' }, (payload: any) => {
             set((state) => {
               if (payload.eventType === 'DELETE') {
                 return { vehicles: state.vehicles.filter((v) => v.id !== payload.old.id) };
@@ -124,7 +124,7 @@ export const useVehicleStore = create<VehicleState>()(
                       .select('id')
                       .eq('name', updatedVehicle.destination_school_name)
                       .single()
-                      .then(({ data: school }) => {
+                      .then(({ data: school }: { data?: any }) => {
                         if (school) {
                           NotificationService.notifySchoolAdmins(
                             school.id,

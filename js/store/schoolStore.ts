@@ -70,7 +70,7 @@ export const useSchoolStore = create<SchoolState>((set, get) => ({
       const { data, error } = await supabase.from('schools').select('province');
       if (error || !data) return ['Semua'];
 
-      const uniqueProvinces = [...new Set(data.map(s => s.province))];
+      const uniqueProvinces = [...new Set((data as any[]).map((s: any) => s.province))];
       const result = ['Semua', ...uniqueProvinces.sort()];
       
       set({ provinces: result });

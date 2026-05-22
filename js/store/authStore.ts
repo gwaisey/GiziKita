@@ -47,7 +47,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
 
     // Listen for auth changes
-    supabase.auth.onAuthStateChange(async (event, session) => {
+    supabase.auth.onAuthStateChange(async (event: any, session: any) => {
       console.log('Auth event in Store:', event);
 
       // Handle failed token refresh (stale session)

@@ -39,7 +39,7 @@ class FeedbackService {
       return [];
     }
     
-    return (data || []).map(fb => ({
+    return (data || []).map((fb: any) => ({
       ...fb,
       date: new Date(fb.created_at).toLocaleDateString('id-ID', { day: '2-digit', month: '2-digit', year: 'numeric' })
     }));

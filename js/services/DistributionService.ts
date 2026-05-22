@@ -4,6 +4,21 @@ import { UserProfile } from '../types';
 import AuditService from './AuditService';
 import AuthService from './AuthService';
 
+// Type for distribution report rows returned by Supabase
+type DistributionLog = {
+  id: string;
+  date: string;
+  time_received?: string | null;
+  target_portions?: number;
+  received_portions?: number;
+  condition?: string | null;
+  status?: string | null;
+  notes?: string | null;
+  photo_url?: string | null;
+  schools?: { name?: string } | null;
+  school_id?: string | null;
+};
+
 class DistributionService {
   private tableName = 'distribution_reports';
   private bucketName = 'distribution-photos';
@@ -12,6 +27,7 @@ class DistributionService {
   private get currentUser(): UserProfile | null {
     return AuthService.currentUser;
   }
+
 
   async getHistory(): Promise<any[]> {
     try {
@@ -50,7 +66,7 @@ class DistributionService {
     const { data, error } = await query;
     if (error) throw error;
     
-    const formatted = data.map(log => ({
+    const formatted = data.map((log: DistributionLog) => ({
       id: log.id,
       date: log.date,
       timeReceived: log.time_received ? log.time_received.slice(0, 5) : '--:--',
@@ -135,9 +151,9 @@ class DistributionService {
     let totalReceived = 0;
     let issues = 0;
 
-    data.forEach(log => {
-      totalTarget += log.target_portions;
-      totalReceived += log.received_portions;
+    data.forEach((log: DistributionLog) => {
+      totalTarget += log.target_portions || 0;
+      totalReceived += log.received_portions || 0;
       if (log.condition === "Ada Kerusakan/Kekurangan") issues++;
     });
 
@@ -268,12 +284,12 @@ class DistributionService {
 
       if (reportError) return [];
 
-      const reportedIds = new Set(reported.map(r => r.school_id));
+      const reportedIds = new Set(reported.map((r: { school_id?: string | null }) => r.school_id));
 
       // 3. Filter schools that are NOT in reportedIds
       const missing = allSchools
-        .filter(s => !reportedIds.has(s.id))
-        .map(s => s.name);
+        .filter((s: { id: string }) => !reportedIds.has(s.id))
+        .map((s: { name?: string }) => s.name);
 
       return missing;
     } catch (err) {
