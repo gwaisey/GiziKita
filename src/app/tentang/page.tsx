@@ -44,7 +44,7 @@ export default function AboutPage() {
         <div style={{ flex: 1, minWidth: '320px' }}>
           <div style={{ position: 'relative' }}>
              <img 
-               src="Assets/landing-page2.jpg" 
+               src="Assets/makanan-bungkusan.jpg" 
                alt="Visi Kami" 
                style={{ width: '100%', borderRadius: '40px', boxShadow: '0 30px 80px rgba(139,28,63,0.15)', border: '12px solid #fff' }} 
              />
