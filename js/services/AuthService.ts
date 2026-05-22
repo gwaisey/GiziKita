@@ -110,7 +110,7 @@ class AuthService {
     
     if (error || !data) return [];
     
-    return data.map(profile => ({
+    return data.map((profile: any) => ({
       id: profile.id,
       role: profile.role as UserRole,
       name: profile.full_name,
