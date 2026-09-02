@@ -59,7 +59,7 @@ class AuthService {
   getPostAuthRedirect(user?: UserProfile | null): string {
     if (!user) return '/';
     if (user.role === 'admin_pusat') return '/profil';
-    if (user.role === 'admin_sekolah') return user.isApproved ? '/distribusi' : '/profil';
+    if (user.role === 'admin_sekolah') return user.isApproved ? '/sekolah' : '/profil';
     return '/';
   }
 
@@ -86,7 +86,7 @@ class AuthService {
     return { success: true, user: user || undefined, redirectTo: this.getPostAuthRedirect(user) };
   }
 
-  async signup(name: string, username: string, email: string, instansi: string, password: string, role: UserRole = 'user_umum', verificationCode: string = ''): Promise<AuthResult> {
+  async signup(name: string, username: string, email: string, instansi: string, password: string, role: UserRole = 'user_umum', verificationCode: string = '', schoolData?: { province: string; city: string; students: number }): Promise<AuthResult> {
     try {
       const normalizedEmail = email.trim().toLowerCase();
       const normalizedUsername = username.trim().toLowerCase();
@@ -112,8 +112,37 @@ class AuthService {
       }
 
       let schoolId: string | null = null;
+      if (role === 'admin_sekolah' && schoolData?.province && schoolData?.city && schoolData?.students) {
+        // Create school entry in schools table
+        try {
+          const { data: schoolData_result, error: schoolError } = await supabase
+            .from('schools')
+            .insert([{
+              name: instansi,
+              province: schoolData.province,
+              city: schoolData.city,
+              pupils: schoolData.students,
+              address: 'Alamat akan diisi kemudian',
+              level: 'Sekolah Dasar',
+              status: 'Pendaftaran Baru',
+              target_portions: schoolData.students // Default: 1 porsi per siswa
+            }])
+            .select('id')
+            .single();
+
+          if (!schoolError && schoolData_result) {
+            schoolId = schoolData_result.id;
+          } else {
+            console.warn('School creation result:', schoolError?.message);
+          }
+        } catch (err) {
+          console.warn('Error creating school:', err);
+        }
+      }
       if (role === 'admin_sekolah' && verificationCode === 'GIZIKITA2025') {
-        schoolId = '1'; 
+        if (!schoolId) {
+          schoolId = '1'; 
+        }
       }
 
       const { error: profileError } = await supabase

@@ -55,6 +55,60 @@ export default class SignupPage extends Component {
                 <label>Nama Instansi / Sekolah</label>
                 <input type="text" id="signup-instansi" placeholder="Nama sekolah atau instansi"/>
               </div>
+
+              <!-- School Location & Student Fields -->
+              <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;" id="school-location-group">
+                <div class="form-group">
+                  <label>Provinsi</label>
+                  <select id="signup-province" style="width:100%;">
+                    <option value="">-- Pilih Provinsi --</option>
+                    <option>Aceh</option>
+                    <option>Sumatera Utara</option>
+                    <option>Sumatera Barat</option>
+                    <option>Riau</option>
+                    <option>Jambi</option>
+                    <option>Sumatera Selatan</option>
+                    <option>Bengkulu</option>
+                    <option>Lampung</option>
+                    <option>Bangka Belitung</option>
+                    <option>Kepulauan Riau</option>
+                    <option>Jakarta</option>
+                    <option>Jawa Barat</option>
+                    <option>Jawa Tengah</option>
+                    <option>Yogyakarta</option>
+                    <option>Jawa Timur</option>
+                    <option>Banten</option>
+                    <option>Bali</option>
+                    <option>Nusa Tenggara Barat</option>
+                    <option>Nusa Tenggara Timur</option>
+                    <option>Kalimantan Barat</option>
+                    <option>Kalimantan Tengah</option>
+                    <option>Kalimantan Selatan</option>
+                    <option>Kalimantan Timur</option>
+                    <option>Kalimantan Utara</option>
+                    <option>Sulawesi Utara</option>
+                    <option>Sulawesi Tengah</option>
+                    <option>Sulawesi Selatan</option>
+                    <option>Sulawesi Tenggara</option>
+                    <option>Gorontalo</option>
+                    <option>Sulawesi Barat</option>
+                    <option>Maluku</option>
+                    <option>Maluku Utara</option>
+                    <option>Papua</option>
+                    <option>Papua Barat</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label>Kota / Kabupaten</label>
+                  <input type="text" id="signup-city" placeholder="Nama kota atau kabupaten"/>
+                </div>
+              </div>
+
+              <div class="form-group" id="students-group">
+                <label>Jumlah Siswa</label>
+                <input type="number" id="signup-students" placeholder="Contoh: 450" min="1" max="5000"/>
+              </div>
+
               <div class="form-group" id="verification-group">
                 <label>Kode Verifikasi Sekolah</label>
                 <input type="text" id="signup-code" placeholder="Masukkan kode resmi dari BGN"/>
@@ -106,11 +160,15 @@ export default class SignupPage extends Component {
     const roleSelect = this.container.querySelector('#signup-role');
     const instansiGroup = this.container.querySelector('#instansi-group');
     const verificationGroup = this.container.querySelector('#verification-group');
+    const schoolLocationGroup = this.container.querySelector('#school-location-group');
+    const studentsGroup = this.container.querySelector('#students-group');
 
     roleSelect.addEventListener('change', () => {
       const isUmum = roleSelect.value === 'user_umum';
       instansiGroup.style.display = isUmum ? 'none' : 'block';
       verificationGroup.style.display = isUmum ? 'none' : 'block';
+      schoolLocationGroup.style.display = isUmum ? 'none' : 'block';
+      studentsGroup.style.display = isUmum ? 'none' : 'block';
     });
 
     this.container.querySelector('#signup-btn').addEventListener('click', async () => {
@@ -123,8 +181,18 @@ export default class SignupPage extends Component {
       const pass = this.container.querySelector('#signup-pass').value;
       const btn = this.container.querySelector('#signup-btn');
 
+      // School-specific fields
+      const province = role === 'admin_sekolah' ? this.container.querySelector('#signup-province').value.trim() : '';
+      const city = role === 'admin_sekolah' ? this.container.querySelector('#signup-city').value.trim() : '';
+      const students = role === 'admin_sekolah' ? parseInt(this.container.querySelector('#signup-students').value) || 0 : 0;
+
       if (!name || !user || !email || !pass) {
         window.app.components.toast.show('Mohon lengkapi semua data diri.');
+        return;
+      }
+
+      if (role === 'admin_sekolah' && (!province || !city || !students)) {
+        window.app.components.toast.show('Untuk sekolah, mohon isi Provinsi, Kota/Kabupaten, dan Jumlah Siswa.');
         return;
       }
 
@@ -134,13 +202,14 @@ export default class SignupPage extends Component {
       btn.innerHTML = '<span class="spinner" style="width:16px; height:16px; border-width:2px;"></span> Mendaftar...';
 
       try {
-        const res = await window.app.services.auth.signup(name, user, email, inst, pass, role, code);
+        const res = await window.app.services.auth.signup(name, user, email, inst, pass, role, code, { province, city, students });
         if (res.success) {
           window.app.components.toast.show(res.message || 'Akun berhasil dibuat.');
           const redirectMap = {
             '/login': 'login',
             '/profil': 'profile',
             '/distribusi': 'distribusi',
+            '/sekolah': 'school-list',
             '/': 'home'
           };
           window.app.router.navigate(redirectMap[res.redirectTo] || 'home');
