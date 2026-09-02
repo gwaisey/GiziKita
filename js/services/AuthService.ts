@@ -4,6 +4,14 @@ import { supabase } from '../core/SupabaseClient';
 import AuditService from './AuditService';
 import NotificationService from './NotificationService';
 
+interface AuthResult {
+  success: boolean;
+  message?: string;
+  user?: UserProfile;
+  needsEmailConfirmation?: boolean;
+  redirectTo?: string;
+}
+
 class AuthService {
   private getFriendlyAuthError(error: any): string {
     const message = String(error?.message || '').toLowerCase();
@@ -48,7 +56,14 @@ class AuthService {
     return useAuthStore.getState().currentUser !== null;
   }
 
-  async login(username: string, password: string): Promise<{ success: boolean; message?: string; user?: UserProfile }> {
+  getPostAuthRedirect(user?: UserProfile | null): string {
+    if (!user) return '/';
+    if (user.role === 'admin_pusat') return '/profil';
+    if (user.role === 'admin_sekolah') return user.isApproved ? '/distribusi' : '/profil';
+    return '/';
+  }
+
+  async login(username: string, password: string): Promise<AuthResult> {
     if (!username || !password) {
       return { success: false, message: 'Username dan password wajib diisi.' };
     }
@@ -68,10 +83,10 @@ class AuthService {
     // Log login action
     AuditService.log({ action: 'LOGIN', new_data: { username, role: user?.role } });
     
-    return { success: true, user: user || undefined };
+    return { success: true, user: user || undefined, redirectTo: this.getPostAuthRedirect(user) };
   }
 
-  async signup(name: string, username: string, email: string, instansi: string, password: string, role: UserRole = 'user_umum', verificationCode: string = ''): Promise<{ success: boolean; message?: string; user?: UserProfile }> {
+  async signup(name: string, username: string, email: string, instansi: string, password: string, role: UserRole = 'user_umum', verificationCode: string = ''): Promise<AuthResult> {
     try {
       const normalizedEmail = email.trim().toLowerCase();
       const normalizedUsername = username.trim().toLowerCase();
@@ -84,7 +99,7 @@ class AuthService {
         email: normalizedEmail,
         password,
         options: {
-          data: { full_name: name, username: normalizedUsername }
+          data: { full_name: name, username: normalizedUsername, instansi, role }
         }
       });
 
@@ -92,6 +107,9 @@ class AuthService {
         return { success: false, message: this.getFriendlyAuthError(authError) };
       }
       if (!authData.user) throw new Error("Gagal membuat akun.");
+      if (Array.isArray(authData.user.identities) && authData.user.identities.length === 0) {
+        return { success: false, message: 'Email ini sudah terdaftar. Silakan login atau gunakan email lain.' };
+      }
 
       let schoolId: string | null = null;
       if (role === 'admin_sekolah' && verificationCode === 'GIZIKITA2025') {
@@ -100,19 +118,22 @@ class AuthService {
 
       const { error: profileError } = await supabase
         .from('profiles')
-        .insert([{
+        .upsert([{
           id: authData.user.id,
           full_name: name,
           username: normalizedUsername,
           instansi,
           role: role,
           school_id: schoolId
-        }]);
+        }], { onConflict: 'id' });
 
-      if (profileError) throw profileError;
+      if (profileError) {
+        if (authData.session) throw profileError;
+        console.warn('Profile will be completed after email confirmation/login:', profileError.message);
+      }
       
       // If a school admin registers, notify Admin Pusat
-      if (role === 'admin_sekolah') {
+      if (role === 'admin_sekolah' && !profileError) {
         await NotificationService.notifyAdminPusat(
           'Pendaftaran Sekolah Baru',
           `Instansi ${name} baru saja mendaftar. Segera verifikasi akun mereka.`,
@@ -124,7 +145,16 @@ class AuthService {
       await useAuthStore.getState().fetchProfile(authData.user.id);
       const user = useAuthStore.getState().currentUser;
 
-      return { success: true, user: user || undefined };
+      if (!authData.session) {
+        return {
+          success: true,
+          needsEmailConfirmation: true,
+          message: 'Pendaftaran berhasil. Silakan cek email untuk konfirmasi akun, lalu login.',
+          redirectTo: '/login'
+        };
+      }
+
+      return { success: true, user: user || undefined, redirectTo: this.getPostAuthRedirect(user) };
     } catch (err: any) {
       return { success: false, message: this.getFriendlyAuthError(err) };
     }

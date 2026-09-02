@@ -136,8 +136,14 @@ export default class SignupPage extends Component {
       try {
         const res = await window.app.services.auth.signup(name, user, email, inst, pass, role, code);
         if (res.success) {
-          window.app.components.toast.show('Akun berhasil dibuat. Jika diminta, cek email untuk konfirmasi akun.');
-          window.app.router.navigate('home');
+          window.app.components.toast.show(res.message || 'Akun berhasil dibuat.');
+          const redirectMap = {
+            '/login': 'login',
+            '/profil': 'profile',
+            '/distribusi': 'distribusi',
+            '/': 'home'
+          };
+          window.app.router.navigate(redirectMap[res.redirectTo] || 'home');
         } else {
           window.app.components.toast.show(res.message);
           btn.disabled = false;

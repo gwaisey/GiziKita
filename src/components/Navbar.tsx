@@ -3,12 +3,13 @@
 import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Bell, User, Menu, X, Info } from 'lucide-react';
+import { Bell, User, Menu, X, Info, LogOut } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/js/core/SupabaseClient';
 import { useAuthStore } from '@/js/store/authStore';
 import { useNotificationStore } from '@/js/store/notificationStore';
 import NotificationService from '@/js/services/NotificationService';
+import AuthService from '@/js/services/AuthService';
 
 interface NavLink {
   page: string;
@@ -49,7 +50,7 @@ export default function Navbar() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isNotifOpen, setIsNotifOpen] = useState(false);
   const notifRef = useRef<HTMLDivElement>(null);
-  const { currentUser } = useAuthStore();
+  const { currentUser, isInitialized } = useAuthStore();
   const { notifications, unreadCount } = useNotificationStore();
 
   // Initialize and Subscribe
@@ -95,8 +96,8 @@ export default function Navbar() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
   
-  const role = currentUser?.role || 'guest';
-  const links = NAV_LINKS[role as keyof typeof NAV_LINKS] || NAV_LINKS.guest;
+  const role = !isInitialized ? 'loading' : currentUser?.role || 'guest';
+  const links = role === 'loading' ? [] : (NAV_LINKS[role as keyof typeof NAV_LINKS] || NAV_LINKS.guest);
 
   const isActive = (path: string) => {
     if (path === '/' && pathname === '/') return true;
@@ -179,6 +180,9 @@ export default function Navbar() {
               <Link href="/profil" className="nav-icon-btn profile-btn">
                 <User size={18} />
               </Link>
+              <button className="nav-icon-btn" type="button" onClick={() => AuthService.logout()} aria-label="Keluar">
+                <LogOut size={18} />
+              </button>
             </div>
           ) : null}
 

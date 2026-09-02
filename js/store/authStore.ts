@@ -97,6 +97,26 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           avatar_url: data.avatar_url
         };
         set({ currentUser: user });
+      } else {
+        const { data: { user: sessionUser } } = await supabase.auth.getUser();
+        if (sessionUser?.id === userId) {
+          const meta = sessionUser.user_metadata || {};
+          const fallbackRole = (meta.role || 'user_umum') as UserRole;
+          const fallbackUser: UserProfile = {
+            id: sessionUser.id,
+            role: fallbackRole,
+            name: meta.full_name || sessionUser.email || 'Pengguna GiziKita',
+            username: meta.username || '',
+            instansi: meta.instansi || (fallbackRole === 'admin_pusat' ? 'Badan Gizi Nasional' : 'Masyarakat Umum'),
+            school_id: null,
+            schoolName: 'Masyarakat Umum',
+            isApproved: fallbackRole !== 'admin_sekolah',
+            avatar_url: meta.avatar_url
+          };
+          set({ currentUser: fallbackUser });
+        } else {
+          set({ currentUser: null });
+        }
       }
     } catch (err) {
       console.error('Error fetching profile:', err);

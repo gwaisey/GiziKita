@@ -1,14 +1,16 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { Eye, EyeOff, Loader2 } from 'lucide-react';
 import AuthService from '@/js/services/AuthService';
 import { useUIStore } from '@/js/store/uiStore';
 
 export default function LoginPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const showToast = useUIStore((state) => state.showToast);
   
   const [username, setUsername] = useState('');
@@ -16,6 +18,12 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (searchParams.get('registered') === 'check-email') {
+      showToast('Pendaftaran berhasil. Cek email untuk konfirmasi akun, lalu login.');
+    }
+  }, [searchParams, showToast]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -32,7 +40,7 @@ export default function LoginPage() {
       
       if (res.success) {
         showToast(`Login berhasil! Selamat datang, ${username}`);
-        router.push('/');
+        router.push(res.redirectTo || '/');
         // Note: In Next.js, layout will automatically update because it listens to Zustand state
       } else {
         setError(res.message || 'Username atau password salah.');
