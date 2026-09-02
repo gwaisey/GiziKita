@@ -345,13 +345,13 @@ function AdminSekolahHome({ user }: { user: any }) {
       <div style={{ position: 'absolute', top: '-120px', right: '-120px', width: '380px', height: '380px', background: 'radial-gradient(circle, rgba(232,103,58,0.18), transparent 72%)', borderRadius: '50%' }}></div>
       <div style={{ position: 'absolute', bottom: '-180px', left: '-140px', width: '440px', height: '440px', background: 'radial-gradient(circle, rgba(139,28,63,0.10), transparent 72%)', borderRadius: '50%' }}></div>
 
-      <section className="home-section" style={{ position: 'relative', zIndex: 2 }}>
-        <div className="home-card-inner" style={{ maxWidth: '1100px', margin: '0 auto', background: 'linear-gradient(135deg, #FFF4E8, #FFE7D2)', borderRadius: '30px', boxShadow: '0 24px 60px rgba(139,28,63,0.10)', border: '1px solid rgba(139,28,63,0.08)' }}>
+      <section className="home-section" style={{ paddingTop: '88px', paddingBottom: '44px', position: 'relative', zIndex: 2 }}>
+        <div className="home-card-inner" style={{ maxWidth: '1100px', margin: '0 auto', background: 'linear-gradient(135deg, #FFF4E8, #FFE7D2)', borderRadius: '30px', boxShadow: '0 24px 60px rgba(139,28,63,0.10)', border: '1px solid rgba(139,28,63,0.08)', padding: '56px 54px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: '28px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
             <div style={{ flex: 2, minWidth: '280px' }}>
               <div style={{ fontSize: '13px', letterSpacing: '1.2px', textTransform: 'uppercase', color: 'var(--coral)', fontWeight: 800, marginBottom: '14px' }}>Dashboard Admin Sekolah</div>
-              <h1 className="hero-title" style={{ fontFamily: 'var(--font-playfair)', margin: 0, color: 'var(--maroon)' }}>Selamat datang, {user?.name || 'Admin Sekolah'}.</h1>
-              <p className="hero-desc" style={{ color: 'var(--text-muted)', marginTop: '16px', maxWidth: '560px', marginBottom: '28px' }}>Anda sudah masuk ke area operasional sekolah. Dari sini Anda bisa mencatat distribusi, meninjau menu, dan memantau status akun instansi Anda.</p>
+              <h1 className="hero-title" style={{ fontFamily: 'var(--font-playfair)', margin: 0, color: 'var(--maroon)', fontSize: '56px', lineHeight: 1.05 }}>Selamat datang, {user?.name || 'Admin Sekolah'}.</h1>
+              <p className="hero-desc" style={{ color: 'var(--text-muted)', marginTop: '16px', maxWidth: '560px', marginBottom: '28px', fontSize: '16px' }}>Anda sudah masuk ke area operasional sekolah. Dari sini Anda bisa mencatat distribusi, meninjau menu, dan memantau status akun instansi Anda.</p>
             </div>
             <div className="badge-card" style={{ background: '#fff', border: '1px solid rgba(139,28,63,0.08)', borderRadius: '22px', padding: '24px 22px', minWidth: '240px', flex: 1, maxWidth: '320px' }}>
               <div style={{ fontSize: '13px', color: 'var(--text-muted)', marginBottom: '8px' }}>Instansi Aktif</div>
@@ -362,7 +362,7 @@ function AdminSekolahHome({ user }: { user: any }) {
         </div>
       </section>
 
-      <section style={{ padding: '0 60px 120px', position: 'relative', zIndex: 2 }}>
+      <section style={{ padding: '0 60px 40px', position: 'relative', zIndex: 2 }}>
         <div style={{ maxWidth: '1100px', margin: '0 auto', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '22px' }}>
           <AdminActionCard 
             title="Catat Distribusi Harian"
@@ -370,6 +370,7 @@ function AdminSekolahHome({ user }: { user: any }) {
             icon={<ClipboardList size={24} />}
             link="/distribusi"
             label="Isi Laporan Sekarang"
+            iconLabel="Operasional"
           />
           <AdminActionCard 
             title="Tinjau Menu Mingguan"
@@ -378,7 +379,30 @@ function AdminSekolahHome({ user }: { user: any }) {
             link="/menu"
             label="Lihat Menu"
             outline
+            iconLabel="Referensi"
           />
+          <AdminActionCard 
+            title="Kelola Profil Instansi"
+            desc="Periksa identitas akun sekolah Anda dan pantau apakah akun sudah disetujui untuk akses penuh."
+            icon={<User size={24} />}
+            link="/profil"
+            label="Buka Profil"
+            outline
+            iconLabel="Status Akun"
+          />
+        </div>
+      </section>
+
+      <section style={{ padding: '0 60px 120px', position: 'relative', zIndex: 2 }}>
+        <div style={{ maxWidth: '1100px', margin: '0 auto', background: '#fff', borderRadius: '26px', padding: '34px', boxShadow: '0 20px 50px rgba(139,28,63,0.10)', display: 'flex', justifyContent: 'space-between', gap: '24px', flexWrap: 'wrap', alignItems: 'center' }}>
+          <div style={{ maxWidth: '640px' }}>
+            <h3 style={{ fontFamily: 'var(--font-playfair)', fontSize: '34px', margin: '0 0 10px', color: 'var(--text)' }}>Butuh kirim aspirasi atau minta bantuan?</h3>
+            <p style={{ fontSize: '15px', lineHeight: 1.7, color: 'var(--text-muted)', margin: 0 }}>Anda tetap bisa membuka pusat umpan balik dan halaman bantuan kapan saja dari navbar untuk berkomunikasi dengan tim pusat.</p>
+          </div>
+          <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+            <Link href="/feedback" className="btn btn-outline" style={{ padding: '15px 24px' }}>Buka Umpan Balik</Link>
+            <Link href="/help" className="btn btn-primary" style={{ padding: '15px 24px' }}>Buka Bantuan</Link>
+          </div>
         </div>
       </section>
     </div>
@@ -391,13 +415,13 @@ function UserUmumHome({ user }: { user: any }) {
       <div style={{ position: 'absolute', top: '-100px', right: '-100px', width: '360px', height: '360px', background: 'radial-gradient(circle, rgba(244,198,98,0.20), transparent 70%)', borderRadius: '50%' }}></div>
       <div style={{ position: 'absolute', bottom: '-160px', left: '-120px', width: '420px', height: '420px', background: 'radial-gradient(circle, rgba(232,103,58,0.10), transparent 72%)', borderRadius: '50%' }}></div>
 
-      <section className="home-section" style={{ position: 'relative', zIndex: 2 }}>
-        <div className="home-card-inner" style={{ maxWidth: '1100px', margin: '0 auto', background: 'linear-gradient(135deg, #FFFFFF, #FFF8EF)', borderRadius: '30px', boxShadow: '0 24px 60px rgba(139,28,63,0.10)', border: '1px solid rgba(139,28,63,0.08)' }}>
+      <section className="home-section" style={{ paddingTop: '88px', paddingBottom: '44px', position: 'relative', zIndex: 2 }}>
+        <div className="home-card-inner" style={{ maxWidth: '1100px', margin: '0 auto', background: 'linear-gradient(135deg, #FFFFFF, #FFF8EF)', borderRadius: '30px', boxShadow: '0 24px 60px rgba(139,28,63,0.10)', border: '1px solid rgba(139,28,63,0.08)', padding: '56px 54px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: '28px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
             <div style={{ flex: 2, minWidth: '280px' }}>
               <div style={{ fontSize: '13px', letterSpacing: '1.2px', textTransform: 'uppercase', color: 'var(--coral)', fontWeight: 800, marginBottom: '14px' }}>Beranda Pengguna</div>
-              <h1 className="hero-title" style={{ fontFamily: 'var(--font-playfair)', margin: 0, color: 'var(--maroon)' }}>Halo, {user?.name || 'Pengguna GiziKita'}.</h1>
-              <p className="hero-desc" style={{ color: 'var(--text-muted)', marginTop: '16px', maxWidth: '560px', marginBottom: '28px' }}>Anda sudah masuk. Dari sini Anda bisa memantau menu bergizi, membaca informasi sekolah, dan mengirim umpan balik ke tim GiziKita.</p>
+              <h1 className="hero-title" style={{ fontFamily: 'var(--font-playfair)', margin: 0, color: 'var(--maroon)', fontSize: '56px', lineHeight: 1.05 }}>Halo, {user?.name || 'Pengguna GiziKita'}.</h1>
+              <p className="hero-desc" style={{ color: 'var(--text-muted)', marginTop: '16px', maxWidth: '560px', marginBottom: '28px', fontSize: '16px' }}>Anda sudah masuk. Dari sini Anda bisa memantau menu bergizi, membaca informasi sekolah, dan mengirim umpan balik ke tim GiziKita.</p>
             </div>
             <div className="badge-card" style={{ background: '#fff', border: '1px solid rgba(139,28,63,0.08)', borderRadius: '22px', padding: '24px 22px', minWidth: '240px', flex: 1, maxWidth: '320px' }}>
               <div style={{ fontSize: '13px', color: 'var(--text-muted)', marginBottom: '8px' }}>Akses Aktif</div>
@@ -408,7 +432,7 @@ function UserUmumHome({ user }: { user: any }) {
         </div>
       </section>
 
-      <section style={{ padding: '0 60px 120px', position: 'relative', zIndex: 2 }}>
+      <section style={{ padding: '0 60px 40px', position: 'relative', zIndex: 2 }}>
         <div style={{ maxWidth: '1100px', margin: '0 auto', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '22px' }}>
           <AdminActionCard 
             title="Lihat Menu Mingguan"
@@ -416,6 +440,7 @@ function UserUmumHome({ user }: { user: any }) {
             icon={<ClipboardList size={24} />}
             link="/menu"
             label="Buka Menu"
+            iconLabel="Gizi"
           />
           <AdminActionCard 
             title="Cek Sekolah Terdaftar"
@@ -424,7 +449,27 @@ function UserUmumHome({ user }: { user: any }) {
             link="/sekolah"
             label="Lihat Sekolah"
             outline
+            iconLabel="Transparansi"
           />
+          <AdminActionCard 
+            title="Sampaikan Masukan"
+            desc="Berikan saran, keluhan, atau apresiasi Anda agar layanan terus membaik."
+            icon={<MessageSquare size={24} />}
+            link="/feedback"
+            label="Buka Umpan Balik"
+            outline
+            iconLabel="Aspirasi"
+          />
+        </div>
+      </section>
+
+      <section style={{ padding: '0 60px 120px', position: 'relative', zIndex: 2 }}>
+        <div style={{ maxWidth: '1100px', margin: '0 auto', background: '#fff', borderRadius: '26px', padding: '34px', boxShadow: '0 20px 50px rgba(139,28,63,0.10)', display: 'flex', justifyContent: 'space-between', gap: '24px', flexWrap: 'wrap', alignItems: 'center' }}>
+          <div style={{ maxWidth: '640px' }}>
+            <h3 style={{ fontFamily: 'var(--font-playfair)', fontSize: '34px', margin: '0 0 10px', color: 'var(--text)' }}>Perlu panduan cepat?</h3>
+            <p style={{ fontSize: '15px', lineHeight: 1.7, color: 'var(--text-muted)', margin: 0 }}>Masuk ke halaman bantuan untuk bertanya tentang menu, sekolah, atau penggunaan aplikasi GiziKita.</p>
+          </div>
+          <Link href="/help" className="btn btn-primary" style={{ padding: '15px 28px' }}>Buka Bantuan</Link>
         </div>
       </section>
     </div>
@@ -510,12 +555,12 @@ function GuestHome() {
 
 // --- HELPER UI COMPONENTS ---
 
-function AdminActionCard({ title, desc, icon, link, label, outline = false }: any) {
+function AdminActionCard({ title, desc, icon, link, label, outline = false, iconLabel }: any) {
   return (
     <div className="admin-action-card">
       <div className="action-meta">
         <span className="action-icon">{icon}</span>
-        <span>{title.split(' ')[0]}</span>
+        <span>{iconLabel || title.split(' ')[0]}</span>
       </div>
       <h2>{title}</h2>
       <p>{desc}</p>
@@ -609,6 +654,11 @@ function AdminActionCard({ title, desc, icon, link, label, outline = false }: an
         .card-action:hover {
           background: #6f1432;
           color: #fff;
+        }
+
+        .card-action.outline:hover {
+          background: rgba(139, 28, 63, 0.08);
+          color: var(--maroon);
         }
 
         @media (max-width: 980px) {

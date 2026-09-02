@@ -132,8 +132,14 @@ class AuthService {
         console.warn('Profile will be completed after email confirmation/login:', profileError.message);
       }
       
+      // Ensure profile exists with correct role (fallback mechanism)
+      const profileEnsured = await this.ensureProfileExists(authData.user.id, role);
+      if (!profileEnsured) {
+        console.warn('Could not ensure profile exists, proceeding anyway');
+      }
+      
       // If a school admin registers, notify Admin Pusat
-      if (role === 'admin_sekolah' && !profileError) {
+      if (role === 'admin_sekolah' && (!profileError || profileEnsured)) {
         await NotificationService.notifyAdminPusat(
           'Pendaftaran Sekolah Baru',
           `Instansi ${name} baru saja mendaftar. Segera verifikasi akun mereka.`,
@@ -162,6 +168,63 @@ class AuthService {
 
   async logout(): Promise<void> {
     await useAuthStore.getState().logout();
+  }
+
+  /**
+   * Ensures a profile exists with the correct role
+   * This is useful for fixing existing profiles or verifying newly created ones
+   */
+  async ensureProfileExists(userId: string, role: UserRole = 'user_umum'): Promise<boolean> {
+    try {
+      const { data, error: fetchError } = await supabase
+        .from('profiles')
+        .select('id, role')
+        .eq('id', userId)
+        .maybeSingle();
+
+      if (fetchError && fetchError.code !== 'PGRST116') throw fetchError;
+
+      if (!data) {
+        // Profile doesn't exist, create it from auth user metadata
+        const { data: { user: authUser } } = await supabase.auth.getUser();
+        if (authUser) {
+          const meta = authUser.user_metadata || {};
+          const { error: createError } = await supabase
+            .from('profiles')
+            .insert([{
+              id: userId,
+              full_name: meta.full_name || authUser.email || 'Pengguna GiziKita',
+              username: meta.username || '',
+              instansi: meta.instansi || (role === 'admin_pusat' ? 'Badan Gizi Nasional' : (role === 'admin_sekolah' ? 'Instansi Sekolah' : 'Masyarakat Umum')),
+              role: role,
+              school_id: null,
+              isApproved: role !== 'admin_sekolah',
+              avatar_url: meta.avatar_url || null
+            }]);
+          
+          if (createError) {
+            console.error('Error creating profile:', createError);
+            return false;
+          }
+        }
+      } else if (data.role !== role) {
+        // Profile exists but has wrong role, update it
+        const { error: updateError } = await supabase
+          .from('profiles')
+          .update({ role: role })
+          .eq('id', userId);
+        
+        if (updateError) {
+          console.error('Error updating profile role:', updateError);
+          return false;
+        }
+      }
+      
+      return true;
+    } catch (err) {
+      console.error('Error ensuring profile exists:', err);
+      return false;
+    }
   }
 
   async getPendingUsers(): Promise<UserProfile[]> {
