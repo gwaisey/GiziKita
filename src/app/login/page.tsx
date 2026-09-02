@@ -67,7 +67,7 @@ export default function LoginPage() {
           
           <div className="auth-box" style={{ background: '#fff', borderRadius: '18px', padding: '32px 28px', boxShadow: '0 6px 40px rgba(139,28,63,.14)' }}>
             <h2 style={{ fontFamily: 'var(--font-playfair)', fontSize: '24px', marginBottom: '6px', color: 'var(--maroon)' }}>Masuk ke Akun</h2>
-            <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginBottom: '22px' }}>Masukkan nama dan password Anda</p>
+            <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginBottom: '22px' }}>Masukkan email dan password Anda</p>
             
             {error && (
               <div className="alert alert-error" style={{ marginBottom: '15px', fontSize: '13px', display: 'flex' }}>
@@ -77,10 +77,10 @@ export default function LoginPage() {
             
             <form onSubmit={handleLogin}>
               <div className="form-group">
-                <label>Username</label>
+                <label>Email</label>
                 <input 
                   type="text" 
-                  placeholder="Username Anda"
+                  placeholder="email@domain.com"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
                   disabled={isLoading}

@@ -47,15 +47,20 @@ class AuthService {
     return { success: true, user: user || undefined };
   }
 
-  async signup(name: string, username: string, _instansi: string, password: string, role: UserRole = 'user_umum', verificationCode: string = ''): Promise<{ success: boolean; message?: string; user?: UserProfile }> {
+  async signup(name: string, username: string, email: string, instansi: string, password: string, role: UserRole = 'user_umum', verificationCode: string = ''): Promise<{ success: boolean; message?: string; user?: UserProfile }> {
     try {
-      const email = `${username.toLowerCase()}@gizikita.id`;
+      const normalizedEmail = email.trim().toLowerCase();
+      const normalizedUsername = username.trim().toLowerCase();
+
+      if (!normalizedEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+        return { success: false, message: 'Alamat email tidak valid.' };
+      }
 
       const { data: authData, error: authError } = await supabase.auth.signUp({
-        email,
+        email: normalizedEmail,
         password,
         options: {
-          data: { full_name: name }
+          data: { full_name: name, username: normalizedUsername }
         }
       });
 
@@ -72,6 +77,8 @@ class AuthService {
         .insert([{
           id: authData.user.id,
           full_name: name,
+          username: normalizedUsername,
+          instansi,
           role: role,
           school_id: schoolId
         }]);

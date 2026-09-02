@@ -41,6 +41,10 @@ export default class SignupPage extends Component {
                 <input type="text" id="signup-username" placeholder="username"/>
               </div>
               <div class="form-group">
+                <label>Email</label>
+                <input type="email" id="signup-email" placeholder="nama@email.com"/>
+              </div>
+              <div class="form-group">
                 <label>Daftar Sebagai</label>
                 <select id="signup-role">
                   <option value="admin_sekolah">Pihak Sekolah / Instansi (Pelapor)</option>
@@ -112,13 +116,14 @@ export default class SignupPage extends Component {
     this.container.querySelector('#signup-btn').addEventListener('click', async () => {
       const name = this.container.querySelector('#signup-name').value.trim();
       const user = this.container.querySelector('#signup-username').value.trim();
+      const email = this.container.querySelector('#signup-email').value.trim();
       const role = roleSelect.value;
       const inst = role === 'user_umum' ? 'Masyarakat Umum' : this.container.querySelector('#signup-instansi').value.trim();
       const code = role === 'user_umum' ? '' : this.container.querySelector('#signup-code').value.trim();
       const pass = this.container.querySelector('#signup-pass').value;
       const btn = this.container.querySelector('#signup-btn');
 
-      if (!name || !user || !pass) {
+      if (!name || !user || !email || !pass) {
         window.app.components.toast.show('Mohon lengkapi semua data diri.');
         return;
       }
@@ -129,7 +134,7 @@ export default class SignupPage extends Component {
       btn.innerHTML = '<span class="spinner" style="width:16px; height:16px; border-width:2px;"></span> Mendaftar...';
 
       try {
-        const res = await window.app.services.auth.signup(name, user, inst, pass, role, code);
+        const res = await window.app.services.auth.signup(name, user, email, inst, pass, role, code);
         if (res.success) {
           window.app.components.toast.show('Akun berhasil dibuat! Selamat bergabung.');
           window.app.router.navigate('home');

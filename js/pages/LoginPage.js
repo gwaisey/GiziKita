@@ -30,13 +30,13 @@ export default class LoginPage extends Component {
             
             <div class="auth-box" style="background:#fff;border-radius:18px;padding:32px 28px;box-shadow:0 6px 40px rgba(139,28,63,.14);">
               <h2 style="font-family:'Playfair Display',serif;font-size:24px;margin-bottom:6px;color:var(--maroon);">Masuk ke Akun</h2>
-              <p style="font-size:13px;color:var(--text-muted);margin-bottom:22px;">Masukkan nama dan password Anda</p>
+              <p style="font-size:13px;color:var(--text-muted);margin-bottom:22px;">Masukkan email dan password Anda</p>
               
               <div id="login-error" class="alert alert-error" style="display:none; margin-bottom:15px; font-size:13px;"></div>
               
               <div class="form-group">
-                <label>Username</label>
-                <input type="text" id="login-name" placeholder="Username Anda"/>
+                <label>Email</label>
+                <input type="text" id="login-name" placeholder="email@domain.com"/>
               </div>
               <div class="form-group">
                 <label>Password</label>

@@ -14,6 +14,7 @@ export default function SignupPage() {
 
   const [name, setName] = useState('');
   const [username, setUsername] = useState('');
+  const [email, setEmail] = useState('');
   const [role, setRole] = useState<UserRole>('user_umum');
   const [instansi, setInstansi] = useState('');
   const [verificationCode, setVerificationCode] = useState('');
@@ -23,7 +24,7 @@ export default function SignupPage() {
 
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name || !username || !password) {
+    if (!name || !username || !email || !password) {
       showToast('Mohon lengkapi semua data diri.');
       return;
     }
@@ -32,7 +33,7 @@ export default function SignupPage() {
 
     try {
       const finalInstansi = role === 'user_umum' ? 'Masyarakat Umum' : instansi;
-      const res = await AuthService.signup(name, username, finalInstansi, password, role, verificationCode);
+      const res = await AuthService.signup(name, username, email, finalInstansi, password, role, verificationCode);
       
       if (res.success) {
         showToast('Akun berhasil dibuat! Selamat bergabung.');
@@ -90,6 +91,16 @@ export default function SignupPage() {
                   placeholder="username"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
+                  disabled={isLoading}
+                />
+              </div>
+              <div className="form-group">
+                <label>Email</label>
+                <input
+                  type="email"
+                  placeholder="nama@email.com"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
                   disabled={isLoading}
                 />
               </div>
