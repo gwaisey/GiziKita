@@ -54,7 +54,12 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY="isi_dengan_anon_public_key_supabase_anda"
 NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN="isi_dengan_mapbox_access_token_anda"
 ```
 
-### 3. Deployment Edge Functions
+### 3. Konfigurasi Auth Email
+Untuk testing, jika muncul error `email rate limit exceeded`, buka Supabase Dashboard lalu masuk ke **Authentication -> Providers -> Email** dan nonaktifkan sementara **Confirm Email** agar akun otomatis terkonfirmasi tanpa mengirim email.
+
+Untuk production, aktifkan kembali verifikasi email dan konfigurasi **custom SMTP** seperti Resend, SendGrid, atau Brevo agar pengiriman email tidak bergantung pada limit SMTP bawaan Supabase.
+
+### 4. Deployment Edge Functions
 Untuk memperbarui atau deploy gateway AI:
 ```bash
 npx supabase functions deploy ai-gateway

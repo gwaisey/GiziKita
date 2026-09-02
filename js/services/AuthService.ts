@@ -5,6 +5,30 @@ import AuditService from './AuditService';
 import NotificationService from './NotificationService';
 
 class AuthService {
+  private getFriendlyAuthError(error: any): string {
+    const message = String(error?.message || '').toLowerCase();
+    const code = String(error?.code || '').toLowerCase();
+    const status = error?.status;
+
+    if (status === 429 || message.includes('rate limit') || code.includes('rate')) {
+      return 'Terlalu banyak email konfirmasi terkirim. Mohon tunggu beberapa saat sebelum mencoba lagi. Untuk testing, admin dapat menonaktifkan sementara Confirm Email di Supabase Auth.';
+    }
+
+    if (message.includes('already registered') || message.includes('already exists') || message.includes('user already')) {
+      return 'Email ini sudah terdaftar. Silakan login atau gunakan email lain.';
+    }
+
+    if (message.includes('invalid email') || message.includes('email address')) {
+      return 'Alamat email tidak valid. Periksa kembali email yang Anda masukkan.';
+    }
+
+    if (message.includes('password')) {
+      return 'Password belum memenuhi ketentuan. Gunakan minimal 6 karakter.';
+    }
+
+    return error?.message || 'Gagal mendaftar. Silakan coba lagi.';
+  }
+
   /**
    * Initialize Auth State
    */
@@ -64,7 +88,9 @@ class AuthService {
         }
       });
 
-      if (authError) throw authError;
+      if (authError) {
+        return { success: false, message: this.getFriendlyAuthError(authError) };
+      }
       if (!authData.user) throw new Error("Gagal membuat akun.");
 
       let schoolId: string | null = null;
@@ -100,7 +126,7 @@ class AuthService {
 
       return { success: true, user: user || undefined };
     } catch (err: any) {
-      return { success: false, message: err.message };
+      return { success: false, message: this.getFriendlyAuthError(err) };
     }
   }
 

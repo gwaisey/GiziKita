@@ -36,7 +36,7 @@ export default function SignupPage() {
       const res = await AuthService.signup(name, username, email, finalInstansi, password, role, verificationCode);
       
       if (res.success) {
-        showToast('Akun berhasil dibuat! Selamat bergabung.');
+        showToast('Akun berhasil dibuat. Jika diminta, cek email untuk konfirmasi akun.');
         router.push('/');
       } else {
         showToast(res.message || 'Gagal mendaftar. Silakan coba lagi.');
