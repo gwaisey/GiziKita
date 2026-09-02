@@ -22,15 +22,8 @@ export const useSchoolStore = create<SchoolState>((set, get) => ({
   isLoading: false,
 
   getSchoolsByProvince: async (province = 'Semua') => {
-    const { schoolsByProvince } = get();
-    
-    // Return cache if available for instant load
-    if (schoolsByProvince[province]) {
-      // Trigger background refresh silently
-      get()._fetchAndCache(province);
-      return schoolsByProvince[province];
-    }
-
+    // Always fetch the latest data from Supabase so newly inserted or updated
+    // schools appear immediately after a SQL change or registration flow update.
     return await get()._fetchAndCache(province);
   },
 
@@ -63,16 +56,13 @@ export const useSchoolStore = create<SchoolState>((set, get) => ({
   },
 
   getProvinces: async () => {
-    const { provinces } = get();
-    if (provinces.length > 1) return provinces; // Already cached (beyond 'Semua')
-
     try {
       const { data, error } = await supabase.from('schools').select('province');
       if (error || !data) return ['Semua'];
 
-      const uniqueProvinces = [...new Set((data as any[]).map((s: any) => s.province))];
+      const uniqueProvinces = [...new Set((data as any[]).map((s: any) => s.province).filter(Boolean))];
       const result = ['Semua', ...uniqueProvinces.sort()];
-      
+
       set({ provinces: result });
       return result;
     } catch (err) {

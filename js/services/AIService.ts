@@ -12,6 +12,12 @@ interface ChatMessage {
   content: string;
 }
 
+interface GroundingContext {
+  question: string;
+  source: string;
+  relevantSchools: string[];
+}
+
 class AIService {
   private lastCallTime: number = 0;
   private cooldownMs: number = 2000;
@@ -204,22 +210,32 @@ class AIService {
 
   public async askHelp(msg: string) {
     if (this.isHelpLoading) return;
-    
+
     const sanitizedMsg = msg.trim().substring(0, 800).replace(/[<>]/g, '');
+    const groundingNote = this.buildGroundingNote(sanitizedMsg);
+    const appContext = await this.getAppGroundingContext(sanitizedMsg);
+    const promptWithContext = this.shouldUseAppContext(sanitizedMsg)
+      ? `${sanitizedMsg}\n\n${groundingNote}\n\n${appContext}`
+      : sanitizedMsg;
+
     this.helpHistory.push({ role: "user", content: sanitizedMsg });
     this._saveHelpHistory();
     this.isHelpLoading = true;
-    
+
     if (this.onHelpUpdate) this.onHelpUpdate();
 
     try {
       const cacheKey = `help_${sanitizedMsg.toLowerCase().replace(/[^a-z0-9]/g, '')}`;
       const cachedResponse = this._getCache(cacheKey);
-      
+
       if (cachedResponse) {
         this.helpHistory.push({ role: "assistant", content: cachedResponse });
       } else {
-        const reply = await this._callAIProxy('getHelpResponse', { history: this.helpHistory });
+        const reply = await this._callAIProxy('getHelpResponse', {
+          history: this.helpHistory,
+          groundingContext: appContext,
+          promptWithContext
+        });
         this.helpHistory.push({ role: "assistant", content: reply });
         this._saveCache(cacheKey, reply, { version: this.MENU_CACHE_VERSION, source: 'ai' });
       }
@@ -229,6 +245,66 @@ class AIService {
     } finally {
       this.isHelpLoading = false;
       if (this.onHelpUpdate) this.onHelpUpdate();
+    }
+  }
+
+  public shouldUseAppContext(message: string): boolean {
+    const text = message.toLowerCase();
+    const explicitSchoolDataPatterns = [
+      'daftar sekolah',
+      'sekolah penerima',
+      'daftar penerima',
+      'sekolah di',
+      'daftar sekolah di',
+      'penerima mbg',
+      'sekolah mbg',
+      'terdaftar',
+      'tercatat',
+      'data aplikasi',
+      'masuk aplikasi',
+      'gizikita'
+    ];
+    const locationPatterns = /(jakarta|bandung|surabaya|bogor|depok|bekasi|medan|yogyakarta|banten|aceh|sumatra|papua|kalimantan|sulawesi|maluku|ntt|ntb|kota|kabupaten|provinsi|wilayah)/;
+    const listIntent = explicitSchoolDataPatterns.some(pattern => text.includes(pattern));
+    return listIntent || (locationPatterns.test(text) && /sekolah|penerima|daftar/.test(text));
+  }
+
+  public buildGroundingNote(question: string): string {
+    return `Sumber kebenaran utama: data aplikasi GiziKita. Untuk pertanyaan tentang sekolah, wilayah, atau daftar penerima, gunakan data terdaftar di aplikasi sebagai referensi utama; jika data tidak ditemukan di aplikasi, sebutkan bahwa data belum tersedia dan jangan menebak. Pertanyaan user: "${question}"`;
+  }
+
+  private async getAppGroundingContext(question: string): Promise<string> {
+    if (!this.shouldUseAppContext(question)) {
+      return '';
+    }
+
+    try {
+      let query = supabase.from('schools').select('name, province, city, pupils, status').order('name', { ascending: true }).limit(20);
+
+      const lower = question.toLowerCase();
+      if (/(jakarta|dki)/.test(lower)) {
+        query = query.ilike('province', '%jakarta%');
+      } else if (/(bandung)/.test(lower)) {
+        query = query.ilike('city', '%bandung%');
+      } else if (/(surabaya)/.test(lower)) {
+        query = query.ilike('city', '%surabaya%');
+      }
+
+      const { data, error } = await query;
+      if (error || !data || data.length === 0) {
+        return 'Tidak ada data sekolah yang cocok di aplikasi GiziKita untuk pertanyaan ini.';
+      }
+
+      const sample = data.slice(0, 10).map((school: any) => {
+        const city = school.city || 'Kota belum diisi';
+        const province = school.province || 'Provinsi belum diisi';
+        return `${school.name} | ${city} | ${province} | Siswa: ${school.pupils ?? 0} | Status: ${school.status ?? 'Belum ada'}`;
+      }).join('; ');
+
+      return `DATA GIZIKITA TERKAIT:\n${sample}`;
+    } catch (err) {
+      console.warn('Grounding context fetch failed:', err);
+      return 'Data aplikasi GiziKita tidak dapat diambil saat ini. Jawaban harus tetap mengikuti aturan aplikasi dan tidak menebak.';
     }
   }
 

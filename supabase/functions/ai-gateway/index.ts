@@ -14,6 +14,8 @@ interface ActionPayload {
     day?: string;
     items?: string[];
     history?: ChatMessage[];
+    groundingContext?: string;
+    promptWithContext?: string;
   };
 }
 
@@ -44,7 +46,13 @@ Deno.serve(async (req: Request) => {
 
     const systemPrompt = `Anda adalah GiziBot, asisten pintar GiziKita. Tugas Anda adalah memberikan informasi akurat mengenai program Makan Bergizi Gratis (MBG) dengan nada ramah, profesional, dan yakin.
 
-            KNOWLEDGE BASE (DATA NASIONAL):
+            PRIORITAS SUMBER DATA:
+            1. Sumber kebenaran utama adalah DATA APLIKASI GIZIKITA (sekolah, wilayah, penerima, status, dan informasi yang terlihat di dashboard).
+            2. Jika pertanyaan berkaitan dengan sekolah, daftar sekolah, penerima, kota, kabupaten, provinsi, atau status terdaftar, gunakan data aplikasi sebagai referensi utama dan jangan menebak.
+            3. Jika data aplikasi tidak tersedia atau tidak cocok, katakan bahwa data belum tersedia di aplikasi GiziKita dan tidak menjawab berdasarkan asumsi.
+            4. Pengetahuan umum MBG hanya dipakai untuk pertanyaan umum yang tidak memerlukan data aplikasi. Pengetahuan umum tidak boleh mengalahkan data aplikasi.
+
+            KNOWLEDGE BASE (DATA NASIONAL TERBATAS):
             1. STATUS & CAKUPAN: Program MBG resmi berjalan secara nasional sejak 6 Januari 2025 di 38 PROVINSI dan menyasar seluruh 514 KOTA/KABUPATEN di Indonesia secara bertahap.
             2. TARGET PESERTA: Program MBG hanya ditujukan untuk sekolah negeri jenjang SDN, SMPN, dan SMAN. Jika seseorang menanyakan ibu hamil, santri, balita, atau kelompok lain, jawab bahwa MBG tidak mencakup mereka dan bahwa kelompok tersebut berada di luar lingkup MBG.
             3. FOKUS GIZI SEKOLAH: MBG adalah program makanan bergizi gratis bagi peserta didik yang mendukung pertumbuhan dan konsentrasi belajar. Intervensi gizi MBG harus menjaga ASI eksklusif dan tidak menyediakan susu formula bayi 0-6 bulan sebagai program massal.
@@ -53,14 +61,15 @@ Deno.serve(async (req: Request) => {
             6. FLORES/PAPUA/DAERAH 3T: Mendapat prioritas khusus dalam pembangunan SPPG mulai tahun 2025 untuk pemerataan gizi.
             7. BERITA TERBARU: Kepala BGN menegaskan MBG tidak membagikan susu formula bayi, karena program ini fokus pada makanan bergizi untuk sekolah dan mengikuti pedoman perlindungan ASI.
             8. LAPORAN KEKERACUNAN: Ada laporan insiden keracunan makanan MBG, terutama pada tahap awal peluncuran. GiziBot harus mengakui adanya laporan tersebut secara faktual, tetapi tidak perlu menyebutkan rincian sensasional. Tegaskan bahwa kasus itu ditindaklanjuti dengan investigasi, audit keamanan pangan, dan perbaikan prosedur SPPG.
-            
+
             ATURAN KRUSIAL:
             1. NADA: Gunakan bahasa yang ramah, netral, dan profesional. Hindari frasa yang terdengar agresif atau berlebihan.
             2. KOREKSI SANTUN: Bila pertanyaan menyangkut kelompok di luar SDN/SMPN/SMAN, jawab bahwa informasi tersebut berada di luar ruang lingkup MBG dan jangan berasumsi MBG berlaku untuk kelompok lain.
             3. JIKA DITANYA TENTANG KERACUNAN: Jawab dengan fakta bahwa ada laporan kasus, bahwa MBG sedang memperkuat pengawasan dan audit, dan bahwa upaya pencegahan terus dilakukan.
             4. DILARANG KERAS membahas anggaran keuangan/dana spesifik.
             5. JUJUR TENTANG APLIKASI: Bedakan data "Digital Dashboard" (yang sedang Anda lihat) dengan "Implementasi Fisik" di lapangan yang mungkin sudah berjalan lebih luas.
-            
+            6. JIKA ADA DATA APLIKASI: jawaban harus merujuk pada data aplikasi GiziKita dengan jelas dan tidak menggeneralisasi terlalu jauh.
+
             Jawablah dengan singkat, padat, dan tidak menggunakan emoji.`;
 
     const buildMenuPrompt = (day: string, items: string[]) => ([
@@ -85,12 +94,30 @@ Deno.serve(async (req: Request) => {
         messages = buildMenuPrompt(day, items)
       } else if (action === 'getHelpResponse') {
         const history = payload.history || [];
+        const groundingContext = payload.groundingContext || '';
+        const promptWithContext = payload.promptWithContext || '';
+        const enrichedHistory = [...history];
+
+        if (groundingContext) {
+          const lastUserMessage = enrichedHistory[enrichedHistory.length - 1];
+          if (lastUserMessage && lastUserMessage.role === 'user') {
+            lastUserMessage.content = `${lastUserMessage.content}\n\n[DATA APLIKASI GIZIKITA]\n${groundingContext}`;
+          }
+        }
+
+        if (promptWithContext) {
+          const lastUserMessage = enrichedHistory[enrichedHistory.length - 1];
+          if (lastUserMessage && lastUserMessage.role === 'user') {
+            lastUserMessage.content = promptWithContext;
+          }
+        }
+
         messages = [
           {
             role: 'system',
             content: systemPrompt
           },
-          ...history.map((msg) => ({
+          ...enrichedHistory.map((msg) => ({
             role: msg.role === 'assistant' ? 'assistant' : 'user',
             content: msg.content
           }))

@@ -24,9 +24,25 @@ describe('AIService Sentiment Analysis', () => {
   });
 
   it('should use fallback logic on error', async () => {
-    // Force an error by passing null where string is expected (if not caught by TS)
-    // Here we just verify the internal logic of the function
     const result = await AIService.analyzeSentiment('', 1);
     expect(result).toBe('bad');
+  });
+});
+
+describe('AIService App Grounding', () => {
+  it('should detect school-related questions that need app data', () => {
+    const text = 'Ada sekolah penerima MBG di Jakarta Selatan?';
+    expect((AIService as any).shouldUseAppContext(text)).toBe(true);
+  });
+
+  it('should keep general MBG questions outside app-only context', () => {
+    const text = 'Apa tujuan program MBG untuk siswa sekolah?';
+    expect((AIService as any).shouldUseAppContext(text)).toBe(false);
+  });
+
+  it('should build a concise source-of-truth note for app data usage', () => {
+    const note = (AIService as any).buildGroundingNote('Ada sekolah penerima MBG di Jakarta');
+    expect(note).toContain('Sumber kebenaran utama');
+    expect(note).toContain('GiziKita');
   });
 });

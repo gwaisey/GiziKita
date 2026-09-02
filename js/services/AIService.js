@@ -131,6 +131,65 @@ class AIService {
     this.lastCallTime = now;
   }
 
+  shouldUseAppContext(message) {
+    const text = message.toLowerCase();
+    const explicitSchoolDataPatterns = [
+      'daftar sekolah',
+      'sekolah penerima',
+      'daftar penerima',
+      'sekolah di',
+      'daftar sekolah di',
+      'penerima mbg',
+      'sekolah mbg',
+      'terdaftar',
+      'tercatat',
+      'data aplikasi',
+      'masuk aplikasi',
+      'gizikita'
+    ];
+    const locationPatterns = /(jakarta|bandung|surabaya|bogor|depok|bekasi|medan|yogyakarta|banten|aceh|sumatra|papua|kalimantan|sulawesi|maluku|ntt|ntb|kota|kabupaten|provinsi|wilayah)/;
+    const listIntent = explicitSchoolDataPatterns.some(pattern => text.includes(pattern));
+    return listIntent || (locationPatterns.test(text) && /sekolah|penerima|daftar/.test(text));
+  }
+
+  buildGroundingNote(question) {
+    return `Sumber kebenaran utama: data aplikasi GiziKita. Untuk pertanyaan tentang sekolah, wilayah, atau daftar penerima, gunakan data terdaftar di aplikasi sebagai referensi utama; jika data tidak ditemukan di aplikasi, sebutkan bahwa data belum tersedia dan jangan menebak. Pertanyaan user: "${question}"`;
+  }
+
+  async getAppGroundingContext(question) {
+    if (!this.shouldUseAppContext(question)) {
+      return '';
+    }
+
+    try {
+      let query = supabase.from('schools').select('name, province, city, pupils, status').order('name', { ascending: true }).limit(20);
+      const lower = question.toLowerCase();
+      if (/(jakarta|dki)/.test(lower)) {
+        query = query.ilike('province', '%jakarta%');
+      } else if (/(bandung)/.test(lower)) {
+        query = query.ilike('city', '%bandung%');
+      } else if (/(surabaya)/.test(lower)) {
+        query = query.ilike('city', '%surabaya%');
+      }
+
+      const { data, error } = await query;
+      if (error || !data || data.length === 0) {
+        return 'Tidak ada data sekolah yang cocok di aplikasi GiziKita untuk pertanyaan ini.';
+      }
+
+      const sample = data.slice(0, 10).map((school) => {
+        const city = school.city || 'Kota belum diisi';
+        const province = school.province || 'Provinsi belum diisi';
+        return `${school.name} | ${city} | ${province} | Siswa: ${school.pupils ?? 0} | Status: ${school.status ?? 'Belum ada'}`;
+      }).join('; ');
+
+      return `DATA GIZIKITA TERKAIT:\n${sample}`;
+    } catch (err) {
+      console.warn('Grounding context fetch failed:', err);
+      return 'Data aplikasi GiziKita tidak dapat diambil saat ini. Jawaban harus tetap mengikuti aturan aplikasi dan tidak menebak.';
+    }
+  }
+
   /**
    * Memanggil Supabase Edge Function sebagai Proxy Aman dengan Retries Agresif
    */
@@ -236,25 +295,26 @@ class AIService {
   }
   async askHelp(msg) {
     if (this.isHelpLoading) return;
-    
-    // 1. Sanitize input to prevent prompt injection / XSS
+
     const sanitizedMsg = msg.trim()
-      .substring(0, 800) // Hard limit for safety
-      .replace(/[<>]/g, ''); // Simple strip for common injection chars
-      
-    // 1. Add user message to history
+      .substring(0, 800)
+      .replace(/[<>]/g, '');
+
+    const groundingNote = this.buildGroundingNote(sanitizedMsg);
+    const appContext = await this.getAppGroundingContext(sanitizedMsg);
+    const promptWithContext = this.shouldUseAppContext(sanitizedMsg)
+      ? `${sanitizedMsg}\n\n${groundingNote}\n\n${appContext}`
+      : sanitizedMsg;
+
     this.helpHistory.push({ role: "user", content: sanitizedMsg });
     this._saveHelpHistory();
     this.isHelpLoading = true;
     this.helpLoadingStatus = "Memahami pertanyaan Anda...";
-    
-    // Notify UI if listener exists
+
     if (this.onHelpUpdate) this.onHelpUpdate();
 
-    // 2. Select context-aware loading messages
     let statuses = ["Menyusun jawaban terbaik...", "Hampir selesai...", "Menghubungkan ke pusat data..."];
     const lowerMsg = sanitizedMsg.toLowerCase();
-    
     if (lowerMsg.includes('sekolah') || lowerMsg.includes('daftar') || lowerMsg.includes('wilayah') || lowerMsg.includes('flores') || lowerMsg.includes('kota')) {
       statuses = ["Mencari data sekolah...", "Mengecek wilayah pilot project...", "Memverifikasi cakupan lokasi...", "Menyiapkan informasi pendaftaran..."];
     } else if (lowerMsg.includes('makan') || lowerMsg.includes('menu') || lowerMsg.includes('gizi') || lowerMsg.includes('protein') || lowerMsg.includes('sehat') || lowerMsg.includes('lapar')) {
@@ -263,7 +323,6 @@ class AIService {
       statuses = ["Mengingat identitas saya...", "Menyusun perkenalan...", "Mencari profil GiziKita..."];
     }
 
-    // Start a status rotation
     let statusIndex = 0;
     const statusInterval = setInterval(() => {
       if (!this.isHelpLoading) {
@@ -276,10 +335,9 @@ class AIService {
     }, 2800);
 
     try {
-      // 2. Check Cache first for the exact same message
       const cacheKey = `help_${sanitizedMsg.toLowerCase().replace(/[^a-z0-9]/g, '')}`;
       const cachedResponse = this._getCache(cacheKey);
-      
+
       if (cachedResponse) {
         this.helpHistory.push({ role: "assistant", content: cachedResponse });
         this._saveHelpHistory();
@@ -288,22 +346,25 @@ class AIService {
         return;
       }
 
-      // 3. Call AI Proxy
-      const reply = await this._callAIProxy('getHelpResponse', { history: this.helpHistory });
-      
-      // 4. Add AI reply to history and cache it
+      const reply = await this._callAIProxy('getHelpResponse', {
+        history: this.helpHistory,
+        groundingContext: appContext,
+        promptWithContext
+      });
+
       this.helpHistory.push({ role: "assistant", content: reply });
       this._saveHelpHistory();
       this._saveCache(cacheKey, reply, { version: this.MENU_CACHE_VERSION, source: 'ai' });
     } catch (e) {
       console.error("AI Help Error:", e);
-      this.helpHistory.push({ 
-        role: "assistant", 
+      this.helpHistory.push({
+        role: "assistant",
         content: this._getFriendlyErrorMessage(e)
       });
       this._saveHelpHistory();
     } finally {
       this.isHelpLoading = false;
+      clearInterval(statusInterval);
       if (this.onHelpUpdate) this.onHelpUpdate();
     }
   }
