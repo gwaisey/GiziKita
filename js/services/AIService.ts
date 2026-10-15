@@ -111,14 +111,6 @@ class AIService {
     } catch (e) {}
   }
 
-  private _checkRateLimit() {
-    const now = Date.now();
-    if (now - this.lastCallTime < this.cooldownMs) {
-      throw new Error(`Mohon tunggu sebentar (${Math.ceil((this.cooldownMs - (now - this.lastCallTime)) / 1000)} detik).`);
-    }
-    this.lastCallTime = now;
-  }
-
   private async _callAIProxy(action: string, payload: any, attempt: number = 1): Promise<string> {
     const MAX_ATTEMPTS = 3;
 
