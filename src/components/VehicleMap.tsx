@@ -599,11 +599,6 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
       ],
       'text-offset': [0, 2.8],
       'text-anchor': 'top',
-      'text-opacity': [
-        'interpolate', ['linear'], ['zoom'],
-        8, 0,
-        10, 1
-      ]
     },
     paint: {
       'icon-opacity': 1,
@@ -611,7 +606,12 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
       'icon-halo-width': ['case', ['==', ['get', 'isSelected'], 1], 3, 0],
       'text-color': '#2c1810',
       'text-halo-color': '#FFFFFF',
-      'text-halo-width': 2
+      'text-halo-width': 2,
+      'text-opacity': [
+        'interpolate', ['linear'], ['zoom'],
+        8, 0,
+        10, 1
+      ]
     }
   };
 
@@ -640,16 +640,16 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
       'text-size': 10,
       'text-offset': [0, 1.8],
       'text-anchor': 'top',
+    },
+    paint: {
+      'text-color': '#1b5e20',
+      'text-halo-color': '#ffffff',
+      'text-halo-width': 1,
       'text-opacity': [
         'interpolate', ['linear'], ['zoom'],
         11, 0,
         12, 1
       ]
-    },
-    paint: {
-      'text-color': '#1b5e20',
-      'text-halo-color': '#ffffff',
-      'text-halo-width': 1
     }
   };
 
