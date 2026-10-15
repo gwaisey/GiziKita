@@ -751,7 +751,7 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
                   'circle-color': '#ff5252',
                   'circle-stroke-width': 1,
                   'circle-stroke-color': '#fff',
-                  'circle-opacity': 0.8
+                  'circle-opacity': 0.45
                 }} 
               />
             </Source>
@@ -1083,10 +1083,12 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
           align-items: center;
           justify-content: center;
           border-radius: 50%;
-          background: #fff;
+          background: rgba(255, 255, 255, 0.6);
           color: var(--maroon);
           border: 2px solid var(--gold);
           box-shadow: 0 4px 12px rgba(44, 24, 16, 0.15);
+          opacity: 0.55;
+          pointer-events: none;
         }
 
         @media (max-width: 760px) {
