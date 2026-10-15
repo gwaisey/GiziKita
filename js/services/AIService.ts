@@ -14,8 +14,6 @@ interface ChatMessage {
 
 
 class AIService {
-  private lastCallTime: number = 0;
-  private cooldownMs: number = 2000;
   private CACHE_KEY = 'gizikita_ai_cache';
   private CACHE_TTL_MS = 24 * 60 * 60 * 1000;
   private MENU_CACHE_VERSION = 'menu-analysis-v2';
