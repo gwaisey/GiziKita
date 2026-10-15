@@ -75,7 +75,7 @@ class AuthService {
       password
     });
 
-    if (error) return { success: false, message: 'Username atau password salah.' };
+    if (error) return { success: false, message: 'Email atau password salah.' };
 
     await useAuthStore.getState().fetchProfile(data.user.id);
     const user = useAuthStore.getState().currentUser;

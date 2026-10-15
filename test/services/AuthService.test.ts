@@ -47,7 +47,7 @@ describe('AuthService', () => {
     const result = await AuthService.login('wrong@email.com', 'wrongpass');
     
     expect(result.success).toBe(false);
-    expect(result.message).toBe('Username atau password salah.');
+    expect(result.message).toBe('Email atau password salah.');
     expect(useAuthStore.getState().currentUser).toBeNull();
   });
 

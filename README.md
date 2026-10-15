@@ -17,6 +17,18 @@ Dalam pengembangan GiziKita, terdapat beberapa objektif teknis utama yang menjad
 2. **Database-Level Security**: Implementasi **Row Level Security (RLS)** pada PostgreSQL untuk memastikan isolasi data yang ketat antar entitas sekolah.
 3. **AI Integration**: Pemanfaatan LLM (Google Gemini & Llama 3) untuk memberikan nilai tambah berupa analisis nutrisi otomatis bagi pengguna.
 
+## 🧪 Testing Accounts
+
+Untuk mencoba aplikasi tanpa perlu mendaftar, gunakan akun demo berikut:
+
+| Role | Email | Password |
+|------|-------|----------|
+| Admin Pusat | adminpusat@gizikita.id | password123 |
+| Admin Sekolah | adminsekolah@gizikita.id | password123 |
+| User Umum | user@gizikita.id | password123 |
+
+> ⚠️ Akun ini hanya untuk keperluan demo. Jangan gunakan untuk menyimpan data nyata.
+
 ## 🔐 Manajemen Akses & Peran
 Akses data dalam aplikasi dibagi menjadi tiga entitas utama dengan hak akses yang terisolasi:
 

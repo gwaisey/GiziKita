@@ -43,7 +43,7 @@ export default function LoginPage() {
         router.push(res.redirectTo || '/');
         // Note: In Next.js, layout will automatically update because it listens to Zustand state
       } else {
-        setError(res.message || 'Username atau password salah.');
+        setError(res.message || 'Email atau password salah.');
       }
     } catch (err) {
       setError('Terjadi kesalahan sistem. Silakan coba lagi.');
