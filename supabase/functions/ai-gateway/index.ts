@@ -167,10 +167,19 @@ Deno.serve(async (req: Request) => {
         } else if (action === 'getHelpResponse') {
           const history = payload.history || [];
           const chat = model.startChat({
-            history: history.slice(0, -1).map((msg) => ({
-              role: msg.role === 'user' ? 'user' : 'model',
-              parts: [{ text: msg.content }],
-            })),
+            history: history.slice(0, -1)
+              .filter((_: any, i: number) => i > 0 || history[0]?.role === 'user') // ensure history starts with user
+              .filter((msg: any) => msg.role === 'user' || msg.role === 'assistant' || msg.role === 'model')
+              .reduce((acc: any[], msg: any, i: number) => {
+                // Skip leading assistant messages
+                if (acc.length === 0 && (msg.role === 'assistant' || msg.role === 'model')) return acc;
+                acc.push(msg);
+                return acc;
+              }, [])
+              .map((msg: any) => ({
+                role: msg.role === 'user' ? 'user' : 'model',
+                parts: [{ text: msg.content }],
+              })),
           })
           const lastMsg = history[history.length - 1].content
           const result = await chat.sendMessage(lastMsg)

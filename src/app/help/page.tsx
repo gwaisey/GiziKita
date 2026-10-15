@@ -6,14 +6,19 @@ import AIService from '@/js/services/AIService';
 import TourService from '@/js/services/TourService';
 
 export default function HelpPage() {
-  const [chatHistory, setChatHistory] = useState(AIService.helpHistory);
+  const [chatHistory, setChatHistory] = useState<typeof AIService.helpHistory>([]);
   const [inputValue, setInputValue] = useState('');
-  const [isLoading, setIsLoading] = useState(AIService.isHelpLoading);
-  const [loadingStatus, setLoadingStatus] = useState(AIService.helpLoadingStatus);
+  const [isLoading, setIsLoading] = useState(false);
+  const [loadingStatus, setLoadingStatus] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Sync with AIService
   useEffect(() => {
+    // Initialize from AIService on client only to avoid hydration mismatch
+    setChatHistory([...AIService.helpHistory]);
+    setIsLoading(AIService.isHelpLoading);
+    setLoadingStatus(AIService.helpLoadingStatus);
+
     AIService.onHelpUpdate = () => {
       setChatHistory([...AIService.helpHistory]);
       setIsLoading(AIService.isHelpLoading);
