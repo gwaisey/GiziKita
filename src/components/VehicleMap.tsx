@@ -1087,7 +1087,7 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
           color: var(--maroon);
           border: 2px solid var(--gold);
           box-shadow: 0 4px 12px rgba(44, 24, 16, 0.15);
-          opacity: 0.55;
+          opacity: 0.65;
           pointer-events: none;
         }
 
