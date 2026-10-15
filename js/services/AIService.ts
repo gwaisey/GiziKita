@@ -12,11 +12,6 @@ interface ChatMessage {
   content: string;
 }
 
-interface GroundingContext {
-  question: string;
-  source: string;
-  relevantSchools: string[];
-}
 
 class AIService {
   private lastCallTime: number = 0;
