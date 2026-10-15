@@ -118,7 +118,7 @@ export default function SignupPage() {
                   type="email"
                   placeholder="nama@email.com"
                   value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  onChange={(e) => handleEmailChange(e.target.value)}
                   disabled={isLoading}
                 />
               </div>
