@@ -895,8 +895,10 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
                 // 3. ATOMIC LOAD: Fetch and force immediate render
                 const freshData = await useVehicleStore.getState().actions.loadVehicles();
                 if (freshData && freshData.length > 0) {
-                  // Small kickstart to the animation ref if needed
-                  if (!animationRef.current) animationRef.current = requestAnimationFrame(animate);
+                  // Force restart animation engine to pick up new vehicles
+                  if (animationRef.current) cancelAnimationFrame(animationRef.current);
+                  vehicleStatesRef.current.clear();
+                  animationRef.current = requestAnimationFrame(animate);
                 }
               }
               
