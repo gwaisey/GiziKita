@@ -206,19 +206,19 @@ class AIService {
     if (this.isHelpLoading) return;
 
     const sanitizedMsg = msg.trim().substring(0, 800).replace(/[<>]/g, '');
-    const groundingNote = this.buildGroundingNote(sanitizedMsg);
-    const appContext = await this.getAppGroundingContext(sanitizedMsg);
-    const promptWithContext = this.shouldUseAppContext(sanitizedMsg)
-      ? `${sanitizedMsg}\n\n${groundingNote}\n\n${appContext}`
-      : sanitizedMsg;
-
+    
     this.helpHistory.push({ role: "user", content: sanitizedMsg });
     this._saveHelpHistory();
     this.isHelpLoading = true;
-
     if (this.onHelpUpdate) this.onHelpUpdate();
 
     try {
+      const groundingNote = this.buildGroundingNote(sanitizedMsg);
+      const appContext = await this.getAppGroundingContext(sanitizedMsg);
+      const promptWithContext = this.shouldUseAppContext(sanitizedMsg)
+        ? `${sanitizedMsg}\n\n${groundingNote}\n\n${appContext}`
+        : sanitizedMsg;
+
       const cacheKey = `help_${sanitizedMsg.toLowerCase().replace(/[^a-z0-9]/g, '')}`;
       const cachedResponse = this._getCache(cacheKey);
 
