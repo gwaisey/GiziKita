@@ -11,13 +11,13 @@ import AuthInitializer from "@/src/components/AuthInitializer";
 const playfair = Playfair_Display({ 
   subsets: ["latin"],
   variable: '--font-playfair',
-  weight: ['400', '700', '900']
+  weight: 'variable'
 });
 
 const dmSans = DM_Sans({ 
   subsets: ["latin"],
   variable: '--font-dm-sans',
-  weight: ['300', '400', '500', '600']
+  weight: 'variable'
 });
 
 export const metadata: Metadata = {
