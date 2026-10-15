@@ -26,3 +26,7 @@ keys/
 .idea/
 supabase/.env
 .next/
+
+.vercel
+.env*
+!.env.example
