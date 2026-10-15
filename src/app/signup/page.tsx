@@ -15,6 +15,24 @@ export default function SignupPage() {
   const [name, setName] = useState('');
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
+
+  // Auto-generate username from name, fallback to email prefix
+  const handleNameChange = (value: string) => {
+    setName(value);
+    const generated = value.trim()
+      ? value.trim().toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '')
+      : email.split('@')[0].toLowerCase().replace(/[^a-z0-9_]/g, '');
+    setUsername(generated);
+  };
+
+  const handleEmailChange = (value: string) => {
+    setEmail(value);
+    // Only update username from email if name is empty
+    if (!name.trim()) {
+      const generated = value.split('@')[0].toLowerCase().replace(/[^a-z0-9_]/g, '');
+      setUsername(generated);
+    }
+  };
   const [role, setRole] = useState<UserRole>('user_umum');
   const [instansi, setInstansi] = useState('');
   const [verificationCode, setVerificationCode] = useState('');
@@ -80,7 +98,7 @@ export default function SignupPage() {
                   type="text" 
                   placeholder="Nama lengkap"
                   value={name}
-                  onChange={(e) => setName(e.target.value)}
+                  onChange={(e) => handleNameChange(e.target.value)}
                   disabled={isLoading}
                 />
               </div>

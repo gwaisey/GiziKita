@@ -89,7 +89,10 @@ class AuthService {
   async signup(name: string, username: string, email: string, instansi: string, password: string, role: UserRole = 'user_umum', verificationCode: string = '', schoolData?: { province: string; city: string; students: number }): Promise<AuthResult> {
     try {
       const normalizedEmail = email.trim().toLowerCase();
-      const normalizedUsername = username.trim().toLowerCase();
+      const normalizedUsername = username.trim().toLowerCase() || 
+        (name.trim() 
+          ? name.trim().toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '')
+          : normalizedEmail.split('@')[0].replace(/[^a-z0-9_]/g, ''));
 
       if (!normalizedEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
         return { success: false, message: 'Alamat email tidak valid.' };
