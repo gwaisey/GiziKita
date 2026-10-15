@@ -121,7 +121,6 @@ class AIService {
 
   private async _callAIProxy(action: string, payload: any, attempt: number = 1): Promise<string> {
     const MAX_ATTEMPTS = 3;
-    this._checkRateLimit();
 
     try {
       const { data, error } = await supabase.functions.invoke('ai-gateway', {
