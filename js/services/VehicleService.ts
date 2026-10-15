@@ -159,8 +159,10 @@ class VehicleService {
     });
     
     // 2. Sync to Supabase via batch buffer to prevent connection exhaustion
+    const vehicle = useVehicleStore.getState().vehicles.find(v => v.id === vehicleId);
     this.queueUpdate(vehicleId, {
       id: vehicleId,
+      license_plate: vehicle?.license_plate,
       route_geometry: routeGeometry,
       route_progress: 0,
       updated_at: new Date().toISOString()
@@ -427,7 +429,8 @@ class VehicleService {
       const updates = Array.from(this.pendingUpdates.values());
       
       // Clear current buffer before sending to avoid race conditions with next ticks
-      const updatesToSend = [...updates];
+      // Filter out records missing license_plate to prevent not-null constraint errors
+      const updatesToSend = [...updates].filter(u => u.license_plate);
       this.pendingUpdates.clear();
 
       try {
