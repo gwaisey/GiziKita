@@ -210,7 +210,7 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    const modelCandidates = ["gemini-2.5-flash", "gemini-1.5-flash"]
+    const modelCandidates = ["gemini-2.5-flash", "gemini-2.0-flash-lite"]
 
     if (!responseText && rawApiKeys.length > 0) {
       for (const apiKey of rawApiKeys) {
