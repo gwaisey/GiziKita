@@ -39,7 +39,27 @@ export const useSchoolStore = create<SchoolState>((set, get) => ({
       const { data, error } = await query;
       if (error) throw error;
 
-      const schools = data as School[];
+      let schools = (data || []) as School[];
+
+      // Gabungkan dengan data pendaftaran sekolah baru dari localStorage
+      if (typeof window !== 'undefined') {
+        try {
+          const raw = localStorage.getItem('gizikita_registered_schools');
+          if (raw) {
+            const localList: School[] = JSON.parse(raw);
+            const filteredLocal = province === 'Semua' 
+              ? localList 
+              : localList.filter((s: School) => s.province === province);
+            // Sekolah baru ditaruh di atas
+            const existingNames = new Set(schools.map(s => s.name.toLowerCase()));
+            const toAdd = filteredLocal.filter((s: School) => !existingNames.has(s.name.toLowerCase()));
+            schools = [...toAdd, ...schools];
+          }
+        } catch (e) {
+          console.warn('Error reading local schools:', e);
+        }
+      }
+
       set((state) => ({
         schoolsByProvince: {
           ...state.schoolsByProvince,
