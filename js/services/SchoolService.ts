@@ -50,13 +50,18 @@ class SchoolService {
 
       // 4. Buat objek data sekolah pendaftaran baru
       const newSchool: School = {
-        id: Date.now(),
+        id: String(Date.now()),
         name: data.name,
+        npsn: data.npsn,
+        address: data.address,
         province,
         city,
         pupils: data.pupils,
+        level: data.level,
         status: 'Pendaftaran Baru',
-        created_at: new Date().toISOString()
+        target_portions: data.pupils,
+        lat: null,
+        lng: null
       };
 
       // 5. Simpan ke localStorage agar tidak hilang saat reload
@@ -89,41 +94,6 @@ class SchoolService {
       console.error('Error registering school:', err);
       return { success: false, message: err?.message || 'Gagal memproses pendaftaran sekolah.' };
     }
-  }
-
-  private extractLocation(address: string): { province: string; city: string } {
-    const knownProvinces = [
-      'Aceh', 'Sumatera Utara', 'Sumatera Barat', 'Riau', 'Jambi', 'Sumatera Selatan', 'Bengkulu', 'Lampung',
-      'Kepulauan Bangka Belitung', 'Kepulauan Riau', 'DKI Jakarta', 'Jawa Barat', 'Jawa Tengah', 'DI Yogyakarta',
-      'Jawa Timur', 'Banten', 'Bali', 'Nusa Tenggara Barat', 'Nusa Tenggara Timur', 'Kalimantan Barat',
-      'Kalimantan Tengah', 'Kalimantan Selatan', 'Kalimantan Timur', 'Kalimantan Utara', 'Sulawesi Utara',
-      'Sulawesi Tengah', 'Sulawesi Selatan', 'Sulawesi Tenggara', 'Gorontalo', 'Sulawesi Barat', 'Maluku',
-      'Maluku Utara', 'Papua Barat', 'Papua'
-    ];
-    
-    let province = 'Jawa Tengah';
-    for (const p of knownProvinces) {
-      if (address.toLowerCase().includes(p.toLowerCase())) {
-        province = p;
-        break;
-      }
-    }
-
-    let city = 'Kota Semarang';
-    const cityMatch = address.match(/(Kota\s+[A-Za-z]+|Kab(?:upaten)?\.?\s+[A-Za-z]+)/i);
-    if (cityMatch) {
-      city = cityMatch[1];
-    } else {
-      const parts = address.split(',').map(s => s.trim());
-      for (const part of parts) {
-        if (/semarang|bandung|jakarta|surabaya|yogyakarta|solo|surakarta|sukabumi|bogor|malang/i.test(part)) {
-          city = part;
-          break;
-        }
-      }
-    }
-
-    return { province, city };
   }
 }
 
