@@ -19,12 +19,11 @@ class SchoolService {
     return useSchoolStore.getState().isLoading;
   }
 
-  async registerSchool(data: { name: string; npsn: string; address: string; pupils: number; level: string; file?: File }): Promise<{ success: boolean; message?: string }> {
+  async registerSchool(data: { name: string; npsn: string; address: string; province: string; city: string; pupils: number; level: string; file?: File }): Promise<{ success: boolean; message?: string }> {
     try {
-      // 1. Ekstraksi provinsi dan kota dari teks alamat
-      const { province, city } = this.extractLocation(data.address);
+      const { province, city } = data;
 
-      // 2. Siapkan data sesuai kolom yang benar-benar ada di tabel database schools
+      // Siapkan data sesuai kolom yang benar-benar ada di tabel database schools
       // (name, province, city, pupils, status)
       const dbPayload = {
         name: data.name,

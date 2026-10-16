@@ -25,9 +25,24 @@ export default function RegisterSchoolPage() {
   const [name, setName] = useState('');
   const [npsn, setNpsn] = useState('');
   const [address, setAddress] = useState('');
+  const [province, setProvince] = useState('');
+  const [city, setCity] = useState('');
   const [pupils, setPupils] = useState('');
   const [level, setLevel] = useState('');
   const [file, setFile] = useState<File | null>(null);
+
+  const PROVINCES = [
+    'Aceh', 'Sumatera Utara', 'Sumatera Barat', 'Riau', 'Jambi',
+    'Sumatera Selatan', 'Bengkulu', 'Lampung', 'Kepulauan Bangka Belitung',
+    'Kepulauan Riau', 'DKI Jakarta', 'Jawa Barat', 'Jawa Tengah',
+    'DI Yogyakarta', 'Jawa Timur', 'Banten', 'Bali', 'Nusa Tenggara Barat',
+    'Nusa Tenggara Timur', 'Kalimantan Barat', 'Kalimantan Tengah',
+    'Kalimantan Selatan', 'Kalimantan Timur', 'Kalimantan Utara',
+    'Sulawesi Utara', 'Sulawesi Tengah', 'Sulawesi Selatan',
+    'Sulawesi Tenggara', 'Gorontalo', 'Sulawesi Barat',
+    'Maluku', 'Maluku Utara', 'Papua Barat', 'Papua',
+    'Papua Selatan', 'Papua Tengah', 'Papua Pegunungan'
+  ];
   
   // UI State
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -37,8 +52,8 @@ export default function RegisterSchoolPage() {
     e.preventDefault();
 
     // Validation
-    if (!name || !npsn || !address || !pupils || !level) {
-      showToast('Harap lengkapi seluruh data sekolah.');
+    if (!name || !npsn || !address || !province || !city || !pupils || !level) {
+      showToast('Harap lengkapi seluruh data sekolah termasuk Provinsi dan Kota/Kabupaten.');
       return;
     }
 
@@ -53,6 +68,8 @@ export default function RegisterSchoolPage() {
         name,
         npsn,
         address,
+        province,
+        city,
         pupils: Number(pupils),
         level,
         file: file || undefined
@@ -169,6 +186,41 @@ export default function RegisterSchoolPage() {
                   style={{ width: '100%', padding: '14px 16px 14px 48px', borderRadius: '12px', border: '2px solid #eee', fontSize: '15px', minHeight: '100px' }}
                   required
                 ></textarea>
+              </div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '28px' }}>
+              <div className="form-group">
+                <label style={{ display: 'block', fontWeight: 800, fontSize: '13px', color: 'var(--maroon)', marginBottom: '8px', textTransform: 'uppercase' }}>Provinsi</label>
+                <div style={{ position: 'relative' }}>
+                  <MapPin size={20} style={{ position: 'absolute', left: '16px', top: '50%', transform: 'translateY(-50%)', color: '#ccc', pointerEvents: 'none' }} />
+                  <select
+                    value={province}
+                    onChange={(e) => { setProvince(e.target.value); setCity(''); }}
+                    style={{ width: '100%', padding: '14px 16px 14px 48px', borderRadius: '12px', border: '2px solid #eee', fontSize: '15px', appearance: 'none', background: '#fff' }}
+                    required
+                  >
+                    <option value="">-- Pilih Provinsi --</option>
+                    {PROVINCES.map(p => (
+                      <option key={p} value={p}>{p}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div className="form-group">
+                <label style={{ display: 'block', fontWeight: 800, fontSize: '13px', color: 'var(--maroon)', marginBottom: '8px', textTransform: 'uppercase' }}>Kota / Kabupaten</label>
+                <div style={{ position: 'relative' }}>
+                  <Building2 size={20} style={{ position: 'absolute', left: '16px', top: '50%', transform: 'translateY(-50%)', color: '#ccc' }} />
+                  <input
+                    type="text"
+                    value={city}
+                    onChange={(e) => setCity(e.target.value)}
+                    placeholder="Contoh: Kota Semarang"
+                    style={{ width: '100%', padding: '14px 16px 14px 48px', borderRadius: '12px', border: '2px solid #eee', fontSize: '15px' }}
+                    required
+                  />
+                </div>
               </div>
             </div>
 
