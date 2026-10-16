@@ -47,6 +47,7 @@ export default function ProfilePage() {
   const [isLoadingPending, setIsLoadingPending] = useState(false);
   const [pendingSchools, setPendingSchools] = useState<School[]>([]);
   const [isLoadingPendingSchools, setIsLoadingPendingSchools] = useState(false);
+  const [approvalTab, setApprovalTab] = useState<'schools' | 'users'>('schools');
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
 
   useEffect(() => {
@@ -285,92 +286,62 @@ export default function ProfilePage() {
 
 
         {isAdminPusat && (
-          <>
-            <section className="approval-section">
-              <div className="section-title-row">
-                <div>
-                  <span className="eyebrow">Persetujuan</span>
-                  <h2>Antrean akun sekolah</h2>
-                </div>
-                {!isLoadingPending && (
-                  <div className="count-badge">{pendingUsers.length} menunggu</div>
-                )}
+          <section className="approval-section">
+            <div className="section-title-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap', gap: '16px', marginBottom: '24px' }}>
+              <div>
+                <span className="eyebrow">Pusat Verifikasi</span>
+                <h2>Persetujuan & Verifikasi</h2>
               </div>
 
-              <div className="approval-panel">
-                <div className="table-wrap">
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>Instansi</th>
-                        <th>Pendaftar</th>
-                        <th>Username</th>
-                        <th>Status</th>
-                        <th>Aksi</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {isLoadingPending ? (
-                        <tr>
-                          <td colSpan={5}>
-                            <div className="table-state">
-                              <Loader2 className="spinner" size={24} />
-                              <span>Sedang memeriksa antrean...</span>
-                            </div>
-                          </td>
-                        </tr>
-                      ) : pendingUsers.length > 0 ? (
-                        pendingUsers.map((user) => (
-                          <tr key={user.id}>
-                            <td data-label="Instansi">
-                              <div className="school-cell">
-                                <Building2 size={18} />
-                                <span>{user.instansi || user.schoolName || 'Instansi belum diisi'}</span>
-                              </div>
-                            </td>
-                            <td data-label="Pendaftar">{user.name || '-'}</td>
-                            <td data-label="Username">@{user.username || '-'}</td>
-                            <td data-label="Status">
-                              <span className="pending-pill">
-                                <AlertCircle size={14} />
-                                Menunggu
-                              </span>
-                            </td>
-                            <td data-label="Aksi">
-                              <button className="approve-btn" onClick={() => handleApproveUser(user.id)}>
-                                <CheckCircle2 size={16} />
-                                Setujui
-                              </button>
-                            </td>
-                          </tr>
-                        ))
-                      ) : (
-                        <tr>
-                          <td colSpan={5}>
-                            <div className="table-state empty">
-                              <BadgeCheck size={28} />
-                              <span>Tidak ada antrean persetujuan saat ini.</span>
-                            </div>
-                          </td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
+              {/* Tab Selector */}
+              <div style={{ display: 'inline-flex', background: 'rgba(139, 28, 63, 0.08)', padding: '5px', borderRadius: '14px', gap: '6px' }}>
+                <button
+                  type="button"
+                  onClick={() => setApprovalTab('schools')}
+                  style={{
+                    padding: '9px 18px',
+                    borderRadius: '10px',
+                    border: 'none',
+                    fontWeight: 800,
+                    fontSize: '13px',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s ease',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    background: approvalTab === 'schools' ? 'var(--maroon)' : 'transparent',
+                    color: approvalTab === 'schools' ? '#fff' : 'var(--text-muted)'
+                  }}
+                >
+                  <GraduationCap size={16} />
+                  Pendaftaran Sekolah ({pendingSchools.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setApprovalTab('users')}
+                  style={{
+                    padding: '9px 18px',
+                    borderRadius: '10px',
+                    border: 'none',
+                    fontWeight: 800,
+                    fontSize: '13px',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s ease',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    background: approvalTab === 'users' ? 'var(--maroon)' : 'transparent',
+                    color: approvalTab === 'users' ? '#fff' : 'var(--text-muted)'
+                  }}
+                >
+                  <User size={16} />
+                  Akun Petugas ({pendingUsers.length})
+                </button>
               </div>
-            </section>
+            </div>
 
-            <section className="approval-section" style={{ marginTop: '40px' }}>
-              <div className="section-title-row">
-                <div>
-                  <span className="eyebrow">Verifikasi Sekolah</span>
-                  <h2>Antrean pendaftaran sekolah baru (MBG)</h2>
-                </div>
-                {!isLoadingPendingSchools && (
-                  <div className="count-badge">{pendingSchools.length} permohonan</div>
-                )}
-              </div>
-
+            {/* TAB 1: PENDAFTARAN SEKOLAH */}
+            {approvalTab === 'schools' && (
               <div className="approval-panel">
                 <div className="table-wrap">
                   <table>
@@ -380,7 +351,7 @@ export default function ProfilePage() {
                         <th>Kota / Kabupaten</th>
                         <th>Provinsi</th>
                         <th>Jumlah Siswa</th>
-                        <th>Status MBG</th>
+                        <th>Status</th>
                         <th>Aksi</th>
                       </tr>
                     </thead>
@@ -448,8 +419,73 @@ export default function ProfilePage() {
                   </table>
                 </div>
               </div>
-            </section>
-          </>
+            )}
+
+            {/* TAB 2: AKUN PETUGAS SEKOLAH */}
+            {approvalTab === 'users' && (
+              <div className="approval-panel">
+                <div className="table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Instansi</th>
+                        <th>Pendaftar</th>
+                        <th>Username</th>
+                        <th>Status</th>
+                        <th>Aksi</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {isLoadingPending ? (
+                        <tr>
+                          <td colSpan={5}>
+                            <div className="table-state">
+                              <Loader2 className="spinner" size={24} />
+                              <span>Sedang memeriksa antrean akun...</span>
+                            </div>
+                          </td>
+                        </tr>
+                      ) : pendingUsers.length > 0 ? (
+                        pendingUsers.map((user) => (
+                          <tr key={user.id}>
+                            <td data-label="Instansi">
+                              <div className="school-cell">
+                                <Building2 size={18} />
+                                <span>{user.instansi || user.schoolName || 'Instansi belum diisi'}</span>
+                              </div>
+                            </td>
+                            <td data-label="Pendaftar">{user.name || '-'}</td>
+                            <td data-label="Username">@{user.username || '-'}</td>
+                            <td data-label="Status">
+                              <span className="pending-pill">
+                                <AlertCircle size={14} />
+                                Menunggu
+                              </span>
+                            </td>
+                            <td data-label="Aksi">
+                              <button className="approve-btn" onClick={() => handleApproveUser(user.id)}>
+                                <CheckCircle2 size={16} />
+                                Setujui
+                              </button>
+                            </td>
+                          </tr>
+                        ))
+                      ) : (
+                        <tr>
+                          <td colSpan={5}>
+                            <div className="table-state empty">
+                              <BadgeCheck size={28} />
+                              <span>Tidak ada antrean persetujuan akun saat ini.</span>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </section>
         )}
       </div>
 

@@ -98,29 +98,34 @@ class SchoolService {
 
   async getPendingSchools(): Promise<School[]> {
     try {
-      // 1. Ambil dari Supabase yang statusnya 'Pendaftaran Baru'
-      const { data, error } = await supabase
-        .from('schools')
-        .select('*')
-        .eq('status', 'Pendaftaran Baru')
-        .order('id', { ascending: false });
+      let pendingList: School[] = [];
 
-      if (error) {
-        console.warn('Gagal mengambil antrean sekolah dari database:', error.message);
+      // 1. Ambil dari Supabase
+      try {
+        const { data, error } = await supabase
+          .from('schools')
+          .select('*')
+          .eq('status', 'Pendaftaran Baru');
+
+        if (!error && data) {
+          pendingList = data as School[];
+        }
+      } catch (dbErr) {
+        console.warn('Supabase getPendingSchools note:', dbErr);
       }
 
-      let pendingList: School[] = (data || []) as School[];
-
-      // 2. Ambil juga dari localStorage (jika tersimpan lokal)
+      // 2. Ambil dari localStorage (jika data tersimpan saat registrasi di browser)
       if (typeof window !== 'undefined') {
         try {
           const raw = localStorage.getItem('gizikita_registered_schools');
           if (raw) {
             const localList: School[] = JSON.parse(raw);
-            const pendingLocal = localList.filter((s: School) => s.status === 'Pendaftaran Baru');
-            const existingNames = new Set(pendingList.map(s => s.name.toLowerCase()));
+            const pendingLocal = localList.filter((s: School) => 
+              s.status === 'Pendaftaran Baru' || s.status?.toLowerCase().includes('pendaftaran')
+            );
+            const existingNames = new Set(pendingList.map(s => s.name?.toLowerCase()));
             for (const s of pendingLocal) {
-              if (!existingNames.has(s.name.toLowerCase())) {
+              if (s.name && !existingNames.has(s.name.toLowerCase())) {
                 pendingList.unshift(s);
               }
             }
