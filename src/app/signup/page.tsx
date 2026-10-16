@@ -47,6 +47,11 @@ export default function SignupPage() {
       return;
     }
 
+    if (role === 'admin_sekolah' && !instansi.trim()) {
+      showToast('Mohon masukkan nama instansi / sekolah.');
+      return;
+    }
+
     setIsLoading(true);
 
     try {
@@ -54,8 +59,23 @@ export default function SignupPage() {
       const res = await AuthService.signup(name, username, email, finalInstansi, password, role, verificationCode);
       
       if (res.success) {
-        showToast(res.message || 'Akun berhasil dibuat.');
-        router.push(res.redirectTo || (res.needsEmailConfirmation ? '/login' : '/'));
+        const dest = res.redirectTo || (res.needsEmailConfirmation ? '/login?registered=check-email' : '/');
+        
+        if (res.needsEmailConfirmation) {
+          showToast(res.message || 'Pendaftaran berhasil! Silakan periksa email lalu masuk.');
+        } else {
+          showToast(res.message || 'Akun berhasil dibuat! Mengalihkan...');
+        }
+
+        setTimeout(() => {
+          router.push(dest);
+          // Fallback if router.push takes time
+          setTimeout(() => {
+            if (window.location.pathname === '/signup') {
+              window.location.href = dest;
+            }
+          }, 800);
+        }, 300);
       } else {
         showToast(res.message || 'Gagal mendaftar. Silakan coba lagi.');
       }

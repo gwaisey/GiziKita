@@ -154,9 +154,8 @@ class AuthService {
           id: authData.user.id,
           full_name: name,
           username: normalizedUsername,
-          instansi,
           role: role,
-          school_id: schoolId
+          school_id: schoolId ? (isNaN(Number(schoolId)) ? schoolId : Number(schoolId)) : null
         }], { onConflict: 'id' });
 
       if (profileError) {
@@ -227,11 +226,8 @@ class AuthService {
               id: userId,
               full_name: meta.full_name || authUser.email || 'Pengguna GiziKita',
               username: meta.username || '',
-              instansi: meta.instansi || (role === 'admin_pusat' ? 'Badan Gizi Nasional' : (role === 'admin_sekolah' ? 'Instansi Sekolah' : 'Masyarakat Umum')),
               role: role,
-              school_id: null,
-              isApproved: role !== 'admin_sekolah',
-              avatar_url: meta.avatar_url || null
+              school_id: null
             }]);
           
           if (createError) {
@@ -273,9 +269,9 @@ class AuthService {
       role: profile.role as UserRole,
       name: profile.full_name,
       username: profile.username || '',
-      instansi: profile.instansi || (profile.schools ? profile.schools.name : 'Masyarakat Umum'),
+      instansi: profile.schools ? profile.schools.name : 'Instansi Menunggu Verifikasi',
       school_id: profile.school_id,
-      schoolName: profile.schools ? profile.schools.name : 'Masyarakat Umum',
+      schoolName: profile.schools ? profile.schools.name : 'Menunggu Verifikasi',
       isApproved: false
     }));
   }
@@ -285,24 +281,34 @@ class AuthService {
     if (!user) return { success: false, message: 'Sesi tidak ditemukan.' };
 
     try {
-      // Update Auth Password if provided
-      if (data.password) {
-        const { error: passError } = await supabase.auth.updateUser({ password: data.password });
-        if (passError) throw passError;
+      // Update Auth Password & Metadata if provided
+      const authUpdates: any = {};
+      if (data.password) authUpdates.password = data.password;
+      if (data.instansi || data.avatar_url) {
+        authUpdates.data = {
+          ...(data.instansi ? { instansi: data.instansi } : {}),
+          ...(data.avatar_url ? { avatar_url: data.avatar_url } : {})
+        };
       }
 
-      // Update Profile in DB
-      const { error: profError } = await supabase
-        .from('profiles')
-        .update({
-          full_name: data.name,
-          username: data.username,
-          instansi: data.instansi,
-          avatar_url: data.avatar_url
-        })
-        .eq('id', user.id);
+      if (Object.keys(authUpdates).length > 0) {
+        const { error: authError } = await supabase.auth.updateUser(authUpdates);
+        if (authError) throw authError;
+      }
 
-      if (profError) throw profError;
+      // Update Profile in DB (only existing columns in profiles)
+      const profileUpdates: any = {};
+      if (data.name !== undefined) profileUpdates.full_name = data.name;
+      if (data.username !== undefined) profileUpdates.username = data.username;
+
+      if (Object.keys(profileUpdates).length > 0) {
+        const { error: profError } = await supabase
+          .from('profiles')
+          .update(profileUpdates)
+          .eq('id', user.id);
+
+        if (profError) throw profError;
+      }
 
       // Refresh local store
       await useAuthStore.getState().fetchProfile(user.id);
@@ -314,11 +320,12 @@ class AuthService {
     }
   }
 
-  async approveUser(userId: string): Promise<{ success: boolean; message?: string }> {
+  async approveUser(userId: string, defaultSchoolId: number = 1): Promise<{ success: boolean; message?: string }> {
     try {
+      // Approving school admin binds them to a valid school (school_id is no longer null)
       const { error } = await supabase
         .from('profiles')
-        .update({ isApproved: true })
+        .update({ school_id: defaultSchoolId })
         .eq('id', userId);
 
       if (error) throw error;
