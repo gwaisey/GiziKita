@@ -95,6 +95,88 @@ class SchoolService {
       return { success: false, message: err?.message || 'Gagal memproses pendaftaran sekolah.' };
     }
   }
+
+  async getPendingSchools(): Promise<School[]> {
+    try {
+      // 1. Ambil dari Supabase yang statusnya 'Pendaftaran Baru'
+      const { data, error } = await supabase
+        .from('schools')
+        .select('*')
+        .eq('status', 'Pendaftaran Baru')
+        .order('id', { ascending: false });
+
+      if (error) {
+        console.warn('Gagal mengambil antrean sekolah dari database:', error.message);
+      }
+
+      let pendingList: School[] = (data || []) as School[];
+
+      // 2. Ambil juga dari localStorage (jika tersimpan lokal)
+      if (typeof window !== 'undefined') {
+        try {
+          const raw = localStorage.getItem('gizikita_registered_schools');
+          if (raw) {
+            const localList: School[] = JSON.parse(raw);
+            const pendingLocal = localList.filter((s: School) => s.status === 'Pendaftaran Baru');
+            const existingNames = new Set(pendingList.map(s => s.name.toLowerCase()));
+            for (const s of pendingLocal) {
+              if (!existingNames.has(s.name.toLowerCase())) {
+                pendingList.unshift(s);
+              }
+            }
+          }
+        } catch (e) {
+          console.warn('Error reading local pending schools:', e);
+        }
+      }
+
+      return pendingList;
+    } catch (err) {
+      console.error('Error fetching pending schools:', err);
+      return [];
+    }
+  }
+
+  async approveSchool(schoolId: string, schoolName: string): Promise<{ success: boolean; message?: string }> {
+    try {
+      // 1. Update di Supabase jika id numerik valid
+      try {
+        await supabase
+          .from('schools')
+          .update({ status: 'Pilot MBG' })
+          .eq('name', schoolName);
+      } catch (dbErr) {
+        console.warn('Supabase school approve warn:', dbErr);
+      }
+
+      // 2. Update di localStorage
+      if (typeof window !== 'undefined') {
+        try {
+          const raw = localStorage.getItem('gizikita_registered_schools');
+          if (raw) {
+            const localList: School[] = JSON.parse(raw);
+            const updated = localList.map((s: School) => {
+              if (s.id === schoolId || s.name.toLowerCase() === schoolName.toLowerCase()) {
+                return { ...s, status: 'Pilot MBG' };
+              }
+              return s;
+            });
+            localStorage.setItem('gizikita_registered_schools', JSON.stringify(updated));
+          }
+        } catch (storageErr) {
+          console.warn('Error updating local approved school:', storageErr);
+        }
+      }
+
+      // 3. Refresh store sekolah
+      await useSchoolStore.getState().getSchoolsByProvince('Semua');
+
+      return { success: true };
+    } catch (err: any) {
+      console.error('Error approving school:', err);
+      return { success: false, message: err?.message || 'Gagal menyetujui sekolah.' };
+    }
+  }
 }
 
 export default new SchoolService();

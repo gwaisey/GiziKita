@@ -10,16 +10,20 @@ import {
   CheckCircle2,
   Eye,
   EyeOff,
+  GraduationCap,
   Loader2,
   LogOut,
+  MapPin,
   Save,
   ShieldCheck,
   User,
+  Users,
 } from 'lucide-react';
 import AuthService from '@/js/services/AuthService';
+import SchoolService from '@/js/services/SchoolService';
 import { useAuthStore } from '@/js/store/authStore';
 import { useUIStore } from '@/js/store/uiStore';
-import { UserProfile } from '@/js/types';
+import { UserProfile, School } from '@/js/types';
 
 const roleLabels: Record<string, string> = {
   admin_pusat: 'Admin Pusat',
@@ -41,6 +45,8 @@ export default function ProfilePage() {
   const [isSaving, setIsSaving] = useState(false);
   const [pendingUsers, setPendingUsers] = useState<UserProfile[]>([]);
   const [isLoadingPending, setIsLoadingPending] = useState(false);
+  const [pendingSchools, setPendingSchools] = useState<School[]>([]);
+  const [isLoadingPendingSchools, setIsLoadingPendingSchools] = useState(false);
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
 
   useEffect(() => {
@@ -56,6 +62,7 @@ export default function ProfilePage() {
 
       if (currentUser.role === 'admin_pusat') {
         fetchPendingUsers();
+        fetchPendingSchools();
       }
     }
   }, [isInitialized, currentUser, router]);
@@ -71,6 +78,20 @@ export default function ProfilePage() {
       showToast('Gagal memuat antrean persetujuan.');
     } finally {
       setIsLoadingPending(false);
+    }
+  };
+
+  const fetchPendingSchools = async () => {
+    if (isLoadingPendingSchools) return;
+    setIsLoadingPendingSchools(true);
+    try {
+      const schools = await SchoolService.getPendingSchools();
+      setPendingSchools(schools);
+    } catch (err) {
+      console.error('Error fetching pending schools:', err);
+      showToast('Gagal memuat antrean pendaftaran sekolah.');
+    } finally {
+      setIsLoadingPendingSchools(false);
     }
   };
 
@@ -108,6 +129,20 @@ export default function ProfilePage() {
       }
     } catch (err) {
       showToast('Terjadi kesalahan.');
+    }
+  };
+
+  const handleApproveSchool = async (schoolId: string, schoolName: string) => {
+    try {
+      const result = await SchoolService.approveSchool(schoolId, schoolName);
+      if (result.success) {
+        showToast(`Sekolah ${schoolName} berhasil disetujui & berstatus aktif!`);
+        fetchPendingSchools();
+      } else {
+        showToast(result.message || 'Gagal menyetujui sekolah.');
+      }
+    } catch (err) {
+      showToast('Terjadi kesalahan koneksi.');
     }
   };
 
@@ -250,79 +285,171 @@ export default function ProfilePage() {
 
 
         {isAdminPusat && (
-          <section className="approval-section">
-            <div className="section-title-row">
-              <div>
-                <span className="eyebrow">Persetujuan</span>
-                <h2>Antrean akun sekolah</h2>
+          <>
+            <section className="approval-section">
+              <div className="section-title-row">
+                <div>
+                  <span className="eyebrow">Persetujuan</span>
+                  <h2>Antrean akun sekolah</h2>
+                </div>
+                {!isLoadingPending && (
+                  <div className="count-badge">{pendingUsers.length} menunggu</div>
+                )}
               </div>
-              {!isLoadingPending && (
-                <div className="count-badge">{pendingUsers.length} menunggu</div>
-              )}
-            </div>
 
-            <div className="approval-panel">
-              <div className="table-wrap">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Instansi</th>
-                      <th>Pendaftar</th>
-                      <th>Username</th>
-                      <th>Status</th>
-                      <th>Aksi</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {isLoadingPending ? (
+              <div className="approval-panel">
+                <div className="table-wrap">
+                  <table>
+                    <thead>
                       <tr>
-                        <td colSpan={5}>
-                          <div className="table-state">
-                            <Loader2 className="spinner" size={24} />
-                            <span>Sedang memeriksa antrean...</span>
-                          </div>
-                        </td>
+                        <th>Instansi</th>
+                        <th>Pendaftar</th>
+                        <th>Username</th>
+                        <th>Status</th>
+                        <th>Aksi</th>
                       </tr>
-                    ) : pendingUsers.length > 0 ? (
-                      pendingUsers.map((user) => (
-                        <tr key={user.id}>
-                          <td data-label="Instansi">
-                            <div className="school-cell">
-                              <Building2 size={18} />
-                              <span>{user.instansi || user.schoolName || 'Instansi belum diisi'}</span>
+                    </thead>
+                    <tbody>
+                      {isLoadingPending ? (
+                        <tr>
+                          <td colSpan={5}>
+                            <div className="table-state">
+                              <Loader2 className="spinner" size={24} />
+                              <span>Sedang memeriksa antrean...</span>
                             </div>
                           </td>
-                          <td data-label="Pendaftar">{user.name || '-'}</td>
-                          <td data-label="Username">@{user.username || '-'}</td>
-                          <td data-label="Status">
-                            <span className="pending-pill">
-                              <AlertCircle size={14} />
-                              Menunggu
-                            </span>
-                          </td>
-                          <td data-label="Aksi">
-                            <button className="approve-btn" onClick={() => handleApproveUser(user.id)}>
-                              <CheckCircle2 size={16} />
-                              Setujui
-                            </button>
+                        </tr>
+                      ) : pendingUsers.length > 0 ? (
+                        pendingUsers.map((user) => (
+                          <tr key={user.id}>
+                            <td data-label="Instansi">
+                              <div className="school-cell">
+                                <Building2 size={18} />
+                                <span>{user.instansi || user.schoolName || 'Instansi belum diisi'}</span>
+                              </div>
+                            </td>
+                            <td data-label="Pendaftar">{user.name || '-'}</td>
+                            <td data-label="Username">@{user.username || '-'}</td>
+                            <td data-label="Status">
+                              <span className="pending-pill">
+                                <AlertCircle size={14} />
+                                Menunggu
+                              </span>
+                            </td>
+                            <td data-label="Aksi">
+                              <button className="approve-btn" onClick={() => handleApproveUser(user.id)}>
+                                <CheckCircle2 size={16} />
+                                Setujui
+                              </button>
+                            </td>
+                          </tr>
+                        ))
+                      ) : (
+                        <tr>
+                          <td colSpan={5}>
+                            <div className="table-state empty">
+                              <BadgeCheck size={28} />
+                              <span>Tidak ada antrean persetujuan saat ini.</span>
+                            </div>
                           </td>
                         </tr>
-                      ))
-                    ) : (
-                      <tr>
-                        <td colSpan={5}>
-                          <div className="table-state empty">
-                            <BadgeCheck size={28} />
-                            <span>Tidak ada antrean persetujuan saat ini.</span>
-                          </div>
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
               </div>
-            </div>
-          </section>
+            </section>
+
+            <section className="approval-section" style={{ marginTop: '40px' }}>
+              <div className="section-title-row">
+                <div>
+                  <span className="eyebrow">Verifikasi Sekolah</span>
+                  <h2>Antrean pendaftaran sekolah baru (MBG)</h2>
+                </div>
+                {!isLoadingPendingSchools && (
+                  <div className="count-badge">{pendingSchools.length} permohonan</div>
+                )}
+              </div>
+
+              <div className="approval-panel">
+                <div className="table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Nama Sekolah</th>
+                        <th>Kota / Kabupaten</th>
+                        <th>Provinsi</th>
+                        <th>Jumlah Siswa</th>
+                        <th>Status MBG</th>
+                        <th>Aksi</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {isLoadingPendingSchools ? (
+                        <tr>
+                          <td colSpan={6}>
+                            <div className="table-state">
+                              <Loader2 className="spinner" size={24} />
+                              <span>Sedang memeriksa pendaftaran sekolah...</span>
+                            </div>
+                          </td>
+                        </tr>
+                      ) : pendingSchools.length > 0 ? (
+                        pendingSchools.map((school) => (
+                          <tr key={school.id || school.name}>
+                            <td data-label="Nama Sekolah">
+                              <div className="school-cell">
+                                <GraduationCap size={18} color="var(--coral)" />
+                                <span>{school.name}</span>
+                              </div>
+                            </td>
+                            <td data-label="Kota / Kabupaten">{school.city || '-'}</td>
+                            <td data-label="Provinsi">
+                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                                <MapPin size={13} color="var(--text-muted)" />
+                                {school.province}
+                              </span>
+                            </td>
+                            <td data-label="Jumlah Siswa">
+                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontWeight: 600 }}>
+                                <Users size={13} />
+                                {Number(school.pupils || 0).toLocaleString('id-ID')}
+                              </span>
+                            </td>
+                            <td data-label="Status">
+                              <span className="pending-pill">
+                                <AlertCircle size={14} />
+                                {school.status || 'Pendaftaran Baru'}
+                              </span>
+                            </td>
+                            <td data-label="Aksi">
+                              <button 
+                                className="approve-btn" 
+                                onClick={() => handleApproveSchool(school.id, school.name)}
+                                style={{ background: 'var(--maroon)', color: '#fff', border: 'none', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '6px', fontWeight: 700 }}
+                              >
+                                <CheckCircle2 size={16} />
+                                Verifikasi & Terima
+                              </button>
+                            </td>
+                          </tr>
+                        ))
+                      ) : (
+                        <tr>
+                          <td colSpan={6}>
+                            <div className="table-state empty">
+                              <BadgeCheck size={28} />
+                              <span>Tidak ada pendaftaran sekolah baru yang menunggu verifikasi.</span>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </section>
+          </>
         )}
       </div>
 

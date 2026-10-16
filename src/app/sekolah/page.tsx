@@ -7,17 +7,38 @@ import {
   Loader2, 
   Filter,
   GraduationCap,
-  Users
+  Users,
+  CheckCircle2
 } from 'lucide-react';
 import SchoolService from '@/js/services/SchoolService';
 import { School } from '@/js/types';
+import { useAuthStore } from '@/js/store/authStore';
+import { useUIStore } from '@/js/store/uiStore';
 
 export default function SchoolListPage() {
+  const { currentUser } = useAuthStore();
+  const showToast = useUIStore((state) => state.showToast);
+  const isAdminPusat = currentUser?.role === 'admin_pusat';
+
   const [schools, setSchools] = useState<School[]>([]);
   const [provinces, setProvinces] = useState<string[]>(['Semua']);
   const [activeFilter, setActiveFilter] = useState('Semua');
   const [isLoading, setIsLoading] = useState(true);
   const [retryCount, setRetryCount] = useState(0);
+
+  const handleApproveSchool = async (schoolId: string, schoolName: string) => {
+    try {
+      const result = await SchoolService.approveSchool(schoolId, schoolName);
+      if (result.success) {
+        showToast(`Sekolah ${schoolName} berhasil disetujui & berstatus Pilot MBG!`);
+        fetchSchools();
+      } else {
+        showToast(result.message || 'Gagal menyetujui sekolah.');
+      }
+    } catch (err) {
+      showToast('Terjadi kesalahan koneksi.');
+    }
+  };
 
   useEffect(() => {
     fetchProvinces();
@@ -126,16 +147,40 @@ export default function SchoolListPage() {
                          </div>
                       </td>
                       <td style={{ padding: '20px 24px' }}>
-                        <span style={{ 
-                          padding: '6px 14px', 
-                          borderRadius: '30px', 
-                          fontSize: '11px', 
-                          fontWeight: 800, 
-                          background: school.status.includes('Pilot') ? '#d4edda' : '#eee',
-                          color: school.status.includes('Pilot') ? '#155724' : '#666'
-                        }}>
-                          {school.status.toUpperCase()}
-                        </span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                          <span style={{ 
+                            padding: '6px 14px', 
+                            borderRadius: '30px', 
+                            fontSize: '11px', 
+                            fontWeight: 800, 
+                            background: school.status.includes('Pilot') ? '#d4edda' : school.status.includes('Pendaftaran') ? '#fff4cf' : '#eee',
+                            color: school.status.includes('Pilot') ? '#155724' : school.status.includes('Pendaftaran') ? '#8a5f00' : '#666'
+                          }}>
+                            {school.status.toUpperCase()}
+                          </span>
+                          {isAdminPusat && school.status === 'Pendaftaran Baru' && (
+                            <button
+                              onClick={() => handleApproveSchool(school.id, school.name)}
+                              style={{
+                                padding: '6px 14px',
+                                borderRadius: '12px',
+                                background: 'var(--maroon)',
+                                color: '#fff',
+                                border: 'none',
+                                cursor: 'pointer',
+                                fontSize: '12px',
+                                fontWeight: 700,
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '6px',
+                                boxShadow: '0 2px 8px rgba(139,28,63,0.2)'
+                              }}
+                            >
+                              <CheckCircle2 size={14} />
+                              Setujui
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ))}
