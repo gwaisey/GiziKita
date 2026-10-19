@@ -34,6 +34,8 @@ export interface Vehicle {
   updated_at: string;
 }
 
+let vehicleLoadGeneration = 0;
+
 interface VehicleState {
   vehicles: Vehicle[];
   loading: boolean;
@@ -42,6 +44,7 @@ interface VehicleState {
   hasDemoData: boolean; // Tracking if demo data is currently seeded
   actions: {
     loadVehicles: () => Promise<Vehicle[]>;
+    invalidatePendingLoads: () => void;
     subscribeRealtime: () => (() => void);
     setSelectedCity: (city: string) => void;
     setHasDemoData: (val: boolean) => void;
@@ -49,7 +52,7 @@ interface VehicleState {
 }
 
 export const useVehicleStore = create<VehicleState>()(
-  devtools((set) => ({
+  devtools((set, get) => ({
     vehicles: [],
     loading: false,
     error: null,
@@ -58,12 +61,15 @@ export const useVehicleStore = create<VehicleState>()(
     actions: {
       setSelectedCity: (city: string) => set({ selectedCity: city }),
       setHasDemoData: (val: boolean) => set({ hasDemoData: val }),
+      invalidatePendingLoads: () => { vehicleLoadGeneration += 1; },
       loadVehicles: async () => {
+        const requestGeneration = ++vehicleLoadGeneration;
         set({ loading: true, error: null });
         try {
           const { data, error } = await supabase.from('vehicles').select('*');
           if (error) throw error;
           const fetchedVehicles: Vehicle[] = data ?? [];
+          if (requestGeneration !== vehicleLoadGeneration) return get().vehicles;
           set({ 
             vehicles: fetchedVehicles,
             error: null,
@@ -71,11 +77,12 @@ export const useVehicleStore = create<VehicleState>()(
           });
           return fetchedVehicles;
         } catch (error: any) {
+          if (requestGeneration !== vehicleLoadGeneration) return get().vehicles;
           console.error('Failed to load vehicles:', error?.message || error);
           set({ error: error?.message || 'Gagal memuat kendaraan.' });
           throw error;
         } finally {
-          set({ loading: false });
+          if (requestGeneration === vehicleLoadGeneration) set({ loading: false });
         }
       },
       subscribeRealtime: () => {

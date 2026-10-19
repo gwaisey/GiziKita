@@ -41,6 +41,22 @@ describe('vehicleStore', () => {
     expect(useVehicleStore.getState().loading).toBe(false);
   });
 
+  it('should not overwrite a newer local fleet with an older in-flight read', async () => {
+    let resolveFetch!: (value: { data: Vehicle[]; error: null }) => void;
+    const mockSelect = vi.fn(() => new Promise<{ data: Vehicle[]; error: null }>((resolve) => {
+      resolveFetch = resolve;
+    }));
+    (supabase.from as ReturnType<typeof vi.fn>).mockReturnValue({ select: mockSelect });
+
+    const pendingLoad = useVehicleStore.getState().actions.loadVehicles();
+    useVehicleStore.getState().actions.invalidatePendingLoads();
+    useVehicleStore.setState({ vehicles: [mockVehicles[0]] });
+    resolveFetch({ data: [], error: null });
+    await pendingLoad;
+
+    expect(useVehicleStore.getState().vehicles).toEqual([mockVehicles[0]]);
+  });
+
   it('should expose load errors and finish loading', async () => {
     const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const mockSelect = vi.fn().mockResolvedValue({ data: null, error: { message: 'Network error' } });

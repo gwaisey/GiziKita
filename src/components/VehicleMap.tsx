@@ -46,6 +46,7 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
   
   const [popupInfo, setPopupInfo] = useState<Vehicle | null>(null);
   const [simulationActive, setSimulationActive] = useState(false);
+  const [isSeedingDemo, setIsSeedingDemo] = useState(false);
   const [mapStatus, setMapStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [mapError, setMapError] = useState<string>('');
   const infrastructureQuery = useQuery({
@@ -881,35 +882,35 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
           
           <button
             onClick={async () => {
-              if (hasDemoData) return;
+              if (hasDemoData || isSeedingDemo) return;
               
-              // 1. Clear any old animation state first
+              setIsSeedingDemo(true);
               vehicleStatesRef.current.clear();
-              
-              useVehicleStore.setState({ loading: true });
+              const vehicleActions = useVehicleStore.getState().actions;
+              vehicleActions.invalidatePendingLoads();
+              useVehicleStore.setState({ loading: true, error: null });
               setSelectedCity('Semua');
-              
-              // 2. Perform Seeding (with Land-Sensing Guard)
-              const result = await VehicleService.seedSampleData(mapRef.current?.getMap());
-              
-              if (!result.success) {
-                alert(result.message);
-              } else {
+
+              try {
+                const result = await VehicleService.seedSampleData(mapRef.current?.getMap());
+                if (!result.success) {
+                  alert(result.message);
+                  return;
+                }
+
                 setHasDemoData(true);
                 void queryClient.invalidateQueries({ queryKey: queryKeys.infrastructure });
-                // 3. ATOMIC LOAD: Fetch and force immediate render
-                const freshData = await useVehicleStore.getState().actions.loadVehicles();
-                if (freshData && freshData.length > 0) {
-                  // Force restart animation engine to pick up new vehicles
-                  if (animationRef.current) cancelAnimationFrame(animationRef.current);
-                  vehicleStatesRef.current.clear();
-                  animationRef.current = requestAnimationFrame(animate);
-                }
+                // Optimistic vehicles are already in Zustand; the service will
+                // swap temporary IDs for confirmed Supabase records in place.
+                vehicleStatesRef.current.clear();
+              } catch (error: any) {
+                alert(error?.message || 'Gagal menyiapkan armada demo.');
+              } finally {
+                useVehicleStore.setState({ loading: false });
+                setIsSeedingDemo(false);
               }
-              
-              useVehicleStore.setState({ loading: false });
             }}
-            disabled={hasDemoData}
+            disabled={hasDemoData || isSeedingDemo}
             style={{ 
               padding: '12px 24px', 
               fontSize: '12px', 
@@ -917,7 +918,7 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
               background: hasDemoData ? 'rgba(139, 28, 63, 0.05)' : 'transparent', 
               color: hasDemoData ? '#1b5e20' : 'var(--maroon)',
               border: hasDemoData ? '2px solid #1b5e20' : '2px solid var(--maroon)',
-              cursor: hasDemoData ? 'default' : 'pointer', 
+              cursor: hasDemoData || isSeedingDemo ? 'default' : 'pointer', 
               fontWeight: 800,
               textTransform: 'uppercase',
               whiteSpace: 'nowrap',
@@ -925,10 +926,12 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
               display: 'flex',
               alignItems: 'center',
               gap: '8px',
-              opacity: hasDemoData ? 0.8 : 1
+              opacity: hasDemoData || isSeedingDemo ? 0.8 : 1
             }}
           >
-            {hasDemoData ? (
+            {isSeedingDemo ? (
+              <><div className="map-spinner" style={{ width: 14, height: 14 }} /> Menyiapkan armada...</>
+            ) : hasDemoData ? (
               <>
                 <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#1b5e20' }} />
                 Data Nasional Aktif

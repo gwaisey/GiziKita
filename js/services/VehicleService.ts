@@ -180,8 +180,7 @@ class VehicleService {
   }
 
   /** Seed sample data into the vehicles table (for demo purposes) */
-  async seedSampleData(mapboxMap?: any): Promise<{ success: boolean; message: string }> {
-    const { findSafeDistributedPoint } = await import('@/js/utils/geoUtils');
+  async seedSampleData(_mapboxMap?: any): Promise<{ success: boolean; message: string }> {
     try {
       // Get existing vehicles to prevent duplicates
       const existingVehicles = useVehicleStore.getState().vehicles;
@@ -220,13 +219,14 @@ class VehicleService {
           // 1 Vehicle per Hub for guaranteed >1 vehicles per region
           // --- SPATIAL DISTRIBUTION (School is pushed 2-4km away) ---
           // Use Search & Rotate to find a safe land spot away from the hub
-          const schoolPos = await findSafeDistributedPoint(
-            mapboxMap, 
-            station.lng, 
-            station.lat, 
-            0.025 + Math.random() * 0.015, // 2.5km to 4km distance
-            Math.random() * 360 // Random initial direction
-          );
+          // Coordinates are derived locally; querying rendered map features for
+          // every destination caused over a thousand unnecessary async turns.
+          const radius = 0.025 + Math.random() * 0.015;
+          const angle = Math.random() * Math.PI * 2;
+          const schoolPos = {
+            lng: station.lng + Math.cos(angle) * radius,
+            lat: station.lat + Math.sin(angle) * radius,
+          };
 
           const school = {
             name: `Sekolah Bina Gizi ${region.name} #${i + 1}`,
@@ -268,36 +268,6 @@ class VehicleService {
       }
     }
 
-      console.log(`[SEED] Synchronizing ${schoolsToSeed.size} schools to database...`);
-      try {
-        const { error: schoolError } = await supabase.from('schools').upsert(Array.from(schoolsToSeed.values()), { onConflict: 'name,province' });
-        if (schoolError) {
-          console.warn('[SEED] Warning: Gagal sinkronisasi schools karena kebijakan RLS atau skema:', schoolError.message);
-        }
-      } catch (err: any) {
-        console.warn('[SEED] Warning: Gagal sinkronisasi schools:', err?.message || err);
-      }
-      
-      console.log(`[SEED] Synchronizing ${sppgToSeed.size} SPPG units (Kecamatan hubs) to database...`);
-      try {
-        const { error: sppgError } = await supabase.from('sppg_units').upsert(Array.from(sppgToSeed.values()), { onConflict: 'name,province' });
-        if (sppgError) {
-          console.warn('[SEED] Warning: Gagal sinkronisasi sppg_units:', sppgError.message);
-        }
-      } catch (err: any) {
-        console.warn('[SEED] Warning: Gagal sinkronisasi sppg_units:', err?.message || err);
-      }
-
-      console.log(`[SEED] Registering ${assetRegistry.length} assets in government database...`);
-      try {
-        const { error: invError } = await supabase.from('vehicle_inventory').upsert(assetRegistry, { onConflict: 'license_plate' });
-        if (invError) {
-          console.warn('[SEED] Warning: Gagal sinkronisasi vehicle_inventory karena kebijakan RLS:', invError.message);
-        }
-      } catch (err: any) {
-        console.warn('[SEED] Warning: Gagal sinkronisasi vehicle_inventory:', err?.message || err);
-      }
-
       console.log(`[SEED] Generating routes for ${tempVehicles.length} vehicles across Indonesia...`);
       
       // Distribute vehicles realistically along their routes
@@ -316,22 +286,58 @@ class VehicleService {
           last_lng: v.last_lng  // Already set to station.lng in loop above
         };
       });
+
+      // Optimistic fleet: render the demo immediately while Supabase writes
+      // the authoritative rows. Replace these temporary IDs after confirmation.
+      const optimisticVehicles = enrichedVehicles.map((vehicle, index) => ({
+        ...vehicle,
+        id: `demo-pending-${Date.now()}-${index}`,
+        updated_at: new Date().toISOString(),
+      })) as Vehicle[];
+      const optimisticIds = new Set(optimisticVehicles.map((vehicle) => vehicle.id));
+      useVehicleStore.setState((state) => ({
+        vehicles: [...state.vehicles, ...optimisticVehicles],
+        error: null,
+      }));
       
-      const { data, error } = await supabase.from('vehicles').insert(enrichedVehicles).select();
-      if (error) throw error;
+      let data: any[] | null;
+      try {
+        const insertResult = await supabase.from('vehicles').insert(enrichedVehicles).select();
+        if (insertResult.error) throw insertResult.error;
+        data = insertResult.data;
+      } catch (insertError) {
+        useVehicleStore.setState((state) => ({
+          vehicles: state.vehicles.filter((vehicle) => !optimisticIds.has(vehicle.id)),
+        }));
+        throw insertError;
+      }
       
       // Inject manually to guarantee instant UI update (bypassing WebSocket lag)
       if (data) {
         useVehicleStore.setState(state => {
-          const newVehicles = [...state.vehicles];
-          data.forEach((newV: any) => {
-            if (!newVehicles.some(v => v.id === newV.id)) {
-              newVehicles.push(newV as Vehicle);
-            }
-          });
-          return { vehicles: newVehicles };
+          const insertedPlates = new Set(data.map((vehicle: any) => vehicle.license_plate));
+          const newVehicles = state.vehicles.filter((vehicle) =>
+            !optimisticIds.has(vehicle.id) && !insertedPlates.has(vehicle.license_plate)
+          );
+          return { vehicles: [...newVehicles, ...(data as Vehicle[])] };
         });
       }
+
+      // Fleet visibility is the primary action. Persist supporting map layers
+      // afterwards so schools/hubs/inventory cannot delay the first vehicles.
+      void Promise.allSettled([
+        supabase.from('schools').upsert(Array.from(schoolsToSeed.values()), { onConflict: 'name,province' }),
+        supabase.from('sppg_units').upsert(Array.from(sppgToSeed.values()), { onConflict: 'name,province' }),
+        supabase.from('vehicle_inventory').upsert(assetRegistry, { onConflict: 'license_plate' }),
+      ]).then((results) => {
+        results.forEach((result, index) => {
+          if (result.status === 'rejected') {
+            console.warn(`[SEED] Supporting write ${index + 1} failed:`, result.reason);
+          } else if (result.value.error) {
+            console.warn(`[SEED] Supporting write ${index + 1} failed:`, result.value.error.message);
+          }
+        });
+      });
 
       return { success: true, message: `${enrichedVehicles.length} kendaraan berhasil disinkronkan.` };
     } catch (err: any) {
