@@ -51,14 +51,14 @@ export default function Navbar() {
   const [isNotifOpen, setIsNotifOpen] = useState(false);
   const notifRef = useRef<HTMLDivElement>(null);
   const { currentUser, isInitialized } = useAuthStore();
-  const { notifications, unreadCount } = useNotificationStore();
+  const { notifications, unreadCount, loading: notificationsLoading, error: notificationsError } = useNotificationStore();
 
   // Initialize and Subscribe
   useEffect(() => {
     if (!currentUser) return;
 
     // Initial fetch
-    NotificationService.fetchNotifications(currentUser.id);
+    void NotificationService.fetchNotifications(currentUser.id).catch(() => undefined);
 
     // Real-time subscription
     const channel = NotificationService.subscribeToNotifications(currentUser.id);
@@ -146,7 +146,14 @@ export default function Navbar() {
                       <span>{notifications.length} Total</span>
                     </div>
                     <div className="notif-list">
-                      {notifications.length > 0 ? (
+                      {notificationsError ? (
+                        <div style={{ padding: '24px 20px', textAlign: 'center', color: 'var(--maroon)', fontSize: '13px' }}>
+                          <p>{notificationsError}</p>
+                          <button type="button" onClick={() => currentUser && void NotificationService.fetchNotifications(currentUser.id).catch(() => undefined)}>Coba lagi</button>
+                        </div>
+                      ) : notificationsLoading && notifications.length === 0 ? (
+                        <div style={{ padding: '32px 20px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>Memuat notifikasi...</div>
+                      ) : notifications.length > 0 ? (
                         notifications.map(n => (
                           <div key={n.id} className="notif-item" onClick={() => handleItemClick(n)}>
                             <div className="notif-icon-circle">

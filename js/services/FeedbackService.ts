@@ -36,7 +36,7 @@ class FeedbackService {
     const { data, error } = await query;
     if (error) {
       console.error('Error fetching feedbacks:', error);
-      return [];
+      throw error;
     }
     
     return (data || []).map((fb: any) => ({
@@ -45,9 +45,9 @@ class FeedbackService {
     }));
   }
 
-  async addFeedback(feedback: Partial<Feedback>) {
+  async addFeedback(feedback: Partial<Feedback>): Promise<Feedback> {
     const user = AuthService.currentUser;
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from('feedbacks')
       .insert([
         { 
@@ -60,15 +60,26 @@ class FeedbackService {
           ticket_number: 'TKT-' + Date.now().toString().slice(-6),
           replies: []
         }
-      ]);
+      ])
+      .select('*')
+      .single();
       
     if (error) {
       console.error('Error adding feedback:', error);
       throw error;
     }
+    return {
+      ...data,
+      date: new Date(data.created_at).toLocaleDateString('id-ID', { day: '2-digit', month: '2-digit', year: 'numeric' }),
+    } as Feedback;
   }
 
-  async addReply(id: string, replyText: string, newStatus: 'Diproses' | 'Selesai') {
+  async updateSentiment(id: string, sentiment: Feedback['sentiment']): Promise<void> {
+    const { error } = await supabase.from('feedbacks').update({ sentiment }).eq('id', id);
+    if (error) throw error;
+  }
+
+  async addReply(id: string, replyText: string, newStatus: 'Diproses' | 'Selesai'): Promise<Feedback> {
     const { data: currentFb, error: fetchErr } = await supabase.from('feedbacks').select('replies').eq('id', id).single();
     if (fetchErr) throw fetchErr;
 
@@ -88,8 +99,12 @@ class FeedbackService {
     if (newStatus === 'Selesai') updates.resolved = true;
     else if (newStatus === 'Diproses') updates.resolved = false;
 
-    const { error } = await supabase.from('feedbacks').update(updates).eq('id', id);
+    const { data, error } = await supabase.from('feedbacks').update(updates).eq('id', id).select('*').single();
     if (error) throw error;
+    return {
+      ...data,
+      date: new Date(data.created_at).toLocaleDateString('id-ID', { day: '2-digit', month: '2-digit', year: 'numeric' }),
+    } as Feedback;
   }
 
   async getFeedbackById(id: string): Promise<Feedback | null> {
@@ -99,7 +114,8 @@ class FeedbackService {
       .eq('id', id)
       .single();
 
-    if (error || !data) return null;
+    if (error) throw error;
+    if (!data) return null;
     
     return {
       ...data,

@@ -14,9 +14,11 @@ import {
 } from 'lucide-react';
 import { useAuthStore } from '@/js/store/authStore';
 import { useUIStore } from '@/js/store/uiStore';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import DistributionService from '@/js/services/DistributionService';
 import SchoolService from '@/js/services/SchoolService';
 import NotificationService from '@/js/services/NotificationService';
+import { queryKeys } from '@/src/lib/queryKeys';
 
 export default function DistributionPage() {
   const router = useRouter();
@@ -24,11 +26,6 @@ export default function DistributionPage() {
   const showToast = useUIStore((state) => state.showToast);
 
   // State
-  const [isLoaded, setIsLoaded] = useState(false);
-  const [isReportedToday, setIsReportedToday] = useState(false);
-  const [metrics, setMetrics] = useState({ totalReceived: 0, successRate: 0, issues: 0 });
-  const [history, setHistory] = useState<any[]>([]);
-  const [schools, setSchools] = useState<any[]>([]);
   const [capturedFiles, setCapturedFiles] = useState<File[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   
@@ -47,35 +44,55 @@ export default function DistributionPage() {
   const streamRef = useRef<MediaStream | null>(null);
 
   useEffect(() => {
-    if (isInitialized && !currentUser) {
-      router.push('/login');
-      return;
-    }
+    if (isInitialized && !currentUser) router.push('/login');
+  }, [isInitialized, currentUser, router]);
 
-    if (isInitialized && currentUser) {
-      fetchData();
-    }
-  }, [isInitialized, currentUser]);
-
-  const fetchData = async () => {
-    try {
+  const queryClient = useQueryClient();
+  const logisticsQuery = useQuery({
+    queryKey: queryKeys.logistics(currentUser?.id || 'anonymous'),
+    enabled: isInitialized && Boolean(currentUser),
+    queryFn: async () => {
       const [todayReport, todayMetrics, distHistory, schoolData] = await Promise.all([
         DistributionService.checkTodayReport(),
         DistributionService.getTodayMetrics(),
         DistributionService.getHistory(),
-        SchoolService.getSchoolsByProvince('Semua')
+        SchoolService.getSchoolsByProvince('Semua'),
       ]);
-
-      setIsReportedToday(todayReport);
-      setMetrics(todayMetrics);
-      setHistory(distHistory);
-      setSchools(schoolData);
-    } catch (err) {
-      showToast('Gagal memuat data distribusi.');
-    } finally {
-      setIsLoaded(true);
-    }
-  };
+      return { todayReport, todayMetrics, distHistory, schoolData };
+    },
+  });
+  const logistics = logisticsQuery.data;
+  const isReportedToday = logistics?.todayReport ?? false;
+  const metrics = logistics?.todayMetrics ?? { totalReceived: 0, successRate: 0, issues: 0 };
+  const history = logistics?.distHistory ?? [];
+  const schools = logistics?.schoolData ?? [];
+  const isLoaded = Boolean(logistics);
+  const submitReportMutation = useMutation({
+    mutationFn: (payload: { receivedPortions: string; condition: string; notes: string; photos: File[]; school_id?: string | number }) =>
+      DistributionService.submitReport(payload),
+    onSuccess: (savedLog) => {
+      queryClient.setQueryData(queryKeys.logistics(currentUser!.id), (current: typeof logistics) => {
+        if (!current) return current;
+        return {
+          ...current,
+          todayReport: currentUser?.role === 'admin_pusat' ? current.todayReport : true,
+          distHistory: [{
+            id: savedLog.id,
+            date: savedLog.date,
+            timeReceived: savedLog.time_received?.slice(0, 5) || '--:--',
+            targetPortions: savedLog.target_portions,
+            receivedPortions: savedLog.received_portions,
+            condition: savedLog.condition,
+            status: savedLog.status,
+            notes: savedLog.notes,
+            photoUrl: savedLog.photo_url,
+            schoolName: schools.find((school: any) => String(school.id) === String(savedLog.school_id))?.name || 'Sekolah Umum',
+          }, ...current.distHistory],
+        };
+      });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.logistics(currentUser!.id) });
+    },
+  });
 
   // Check for missing reports (Admin Pusat Only)
   useEffect(() => {
@@ -172,19 +189,19 @@ export default function DistributionPage() {
 
     setIsSubmitting(true);
     try {
-      await DistributionService.submitReport({
+      await submitReportMutation.mutateAsync({
         receivedPortions: portions,
         condition: condition,
         notes: notes,
         photos: capturedFiles,
-        school_id: selectedSchool || currentUser?.school_id
+        school_id: selectedSchool || currentUser?.school_id || undefined
       });
 
       showToast('Laporan distribusi berhasil dikirim!');
 
-      // Notify user locally about the action
+      // Notification is secondary; don't make the report UI wait for it.
       if (currentUser) {
-        await NotificationService.notify(
+        void NotificationService.notify(
           currentUser.id,
           'Laporan Terkirim',
           `Laporan harian unit sekolah telah berhasil dicatat oleh sistem.`,
@@ -193,7 +210,6 @@ export default function DistributionPage() {
         );
       }
 
-      fetchData(); // Refresh data
       setPortions('');
       setCondition('');
       setNotes('');
@@ -235,6 +251,15 @@ export default function DistributionPage() {
     document.body.removeChild(link);
     showToast('Rekap berhasil diunduh!');
   };
+
+  if (logisticsQuery.isError && !logistics) {
+    return (
+      <div className="page-inner wide" style={{ padding: '80px 20px', textAlign: 'center' }}>
+        <p style={{ color: 'var(--maroon)', fontWeight: 700 }}>Data Dashboard Logistik gagal dimuat.</p>
+        <button className="btn btn-primary" onClick={() => void logisticsQuery.refetch()}>Coba lagi</button>
+      </div>
+    );
+  }
 
   if (!isLoaded) {
     return (

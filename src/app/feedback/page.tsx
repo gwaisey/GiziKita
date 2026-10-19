@@ -1,7 +1,8 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { 
   Plus, 
   ArrowLeft, 
@@ -15,6 +16,7 @@ import AuthService from '@/js/services/AuthService';
 import AIService from '@/js/services/AIService';
 import { useAuthStore } from '@/js/store/authStore';
 import { useUIStore } from '@/js/store/uiStore';
+import { queryKeys } from '@/src/lib/queryKeys';
 
 type ViewType = 'list' | 'detail' | 'form';
 
@@ -25,10 +27,9 @@ export default function FeedbackPage() {
 
   // State
   const [view, setView] = useState<ViewType>('list');
-  const [feedbacks, setFeedbacks] = useState<Feedback[]>([]);
   const [selectedFeedback, setSelectedFeedback] = useState<Feedback | null>(null);
+  const [isLoadingDetail, setIsLoadingDetail] = useState(false);
   const [activeFilter, setActiveFilter] = useState('all');
-  const [isLoading, setIsLoading] = useState(true);
   
   // Form State
   const [formSchool, setFormSchool] = useState('');
@@ -42,25 +43,16 @@ export default function FeedbackPage() {
   const [replyStatus, setReplyStatus] = useState<'Diproses' | 'Selesai'>('Diproses');
   const [isReplying, setIsReplying] = useState(false);
 
-  useEffect(() => {
-    fetchFeedbacks();
-  }, [activeFilter]);
-
-  const fetchFeedbacks = async () => {
-    setIsLoading(true);
-    try {
-      const data = await FeedbackService.getFeedbacks(activeFilter);
-      setFeedbacks(data);
-    } catch (err) {
-      showToast('Gagal memuat data umpan balik.');
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  const queryClient = useQueryClient();
+  const feedbackQuery = useQuery({
+    queryKey: queryKeys.feedback(activeFilter),
+    queryFn: () => FeedbackService.getFeedbacks(activeFilter),
+  });
+  const feedbacks = feedbackQuery.data ?? [];
 
   const handleOpenDetail = async (id: string) => {
-    setIsLoading(true);
     setView('detail');
+    setIsLoadingDetail(true);
     try {
       const fb = await FeedbackService.getFeedbackById(id);
       setSelectedFeedback(fb);
@@ -68,7 +60,7 @@ export default function FeedbackPage() {
       showToast('Gagal memuat detail umpan balik.');
       setView('list');
     } finally {
-      setIsLoading(false);
+      setIsLoadingDetail(false);
     }
   };
 
@@ -80,20 +72,31 @@ export default function FeedbackPage() {
     }
 
     setIsSubmitting(true);
+    const submittedText = formText;
+    const submittedStars = formStars;
     try {
-      const sentiment = await AIService.analyzeSentiment(formText, formStars);
-      await FeedbackService.addFeedback({
+      const createdFeedback = await FeedbackService.addFeedback({
         school: formSchool || 'Umum',
         role: formRole,
-        stars: formStars,
-        text: formText,
-        sentiment: sentiment as any
+        stars: submittedStars,
+        text: submittedText,
+        sentiment: 'neutral'
       });
+      queryClient.setQueryData<Feedback[]>(queryKeys.feedback('all'), (items = []) => [createdFeedback, ...items]);
+      void queryClient.invalidateQueries({ queryKey: ['feedback'] });
       showToast('Umpan balik berhasil dikirim!');
       setFormStars(0);
       setFormText('');
       setView('list');
-      fetchFeedbacks();
+      void AIService.analyzeSentiment(submittedText, submittedStars)
+        .then(async (sentiment) => {
+          await FeedbackService.updateSentiment(createdFeedback.id, sentiment as Feedback['sentiment']);
+          queryClient.setQueriesData<Feedback[]>({ queryKey: queryKeys.feedback('all') }, (items) =>
+            items?.map((item) => item.id === createdFeedback.id ? { ...item, sentiment: sentiment as Feedback['sentiment'] } : item)
+          );
+          void queryClient.invalidateQueries({ queryKey: ['feedback'] });
+        })
+        .catch((error) => console.warn('Sentiment analysis update failed:', error));
     } catch (err: any) {
       showToast('Gagal mengirim: ' + err.message);
     } finally {
@@ -105,11 +108,14 @@ export default function FeedbackPage() {
     if (!replyText.trim() || !selectedFeedback) return;
     setIsReplying(true);
     try {
-      await FeedbackService.addReply(selectedFeedback.id, replyText, replyStatus);
+      const updated = await FeedbackService.addReply(selectedFeedback.id, replyText, replyStatus);
       showToast('Tanggapan berhasil dikirim!');
       setReplyText('');
-      const updated = await FeedbackService.getFeedbackById(selectedFeedback.id);
       setSelectedFeedback(updated);
+      queryClient.setQueriesData<Feedback[]>({ queryKey: ['feedback'] }, (items) =>
+        items?.map((item) => item.id === updated.id ? updated : item)
+      );
+      void queryClient.invalidateQueries({ queryKey: ['feedback'] });
     } catch (err) {
       showToast('Gagal mengirim tanggapan.');
     } finally {
@@ -179,7 +185,12 @@ export default function FeedbackPage() {
             ))}
           </div>
 
-          {isLoading ? (
+          {feedbackQuery.isError ? (
+            <div style={{ padding: '60px', textAlign: 'center', color: 'var(--maroon)' }}>
+              <p>Gagal memuat umpan balik.</p>
+              <button className="btn btn-primary" onClick={() => void feedbackQuery.refetch()}>Coba lagi</button>
+            </div>
+          ) : feedbackQuery.isPending ? (
             <div style={{ padding: '80px 0', textAlign: 'center' }}>
               <Loader2 className="spinner" size={40} color="var(--maroon)" />
               <p style={{ marginTop: '16px', color: 'var(--text-muted)' }}>Memuat aspirasi...</p>
@@ -231,6 +242,12 @@ export default function FeedbackPage() {
       )}
 
       {/* --- DETAIL VIEW --- */}
+      {view === 'detail' && isLoadingDetail && (
+        <div style={{ padding: '80px 20px', textAlign: 'center' }}>
+          <Loader2 className="spinner" size={36} color="var(--maroon)" />
+          <p>Memuat detail umpan balik...</p>
+        </div>
+      )}
       {view === 'detail' && selectedFeedback && (
         <div className="page-inner" style={{ padding: '40px 20px', maxWidth: '720px', margin: '0 auto' }}>
           <button onClick={() => setView('list')} style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--maroon)', fontWeight: 700, border: 'none', background: 'none', cursor: 'pointer', marginBottom: '32px' }}>
@@ -386,7 +403,7 @@ export default function FeedbackPage() {
                   disabled={isSubmitting}
                   style={{ width: '100%', padding: '18px', borderRadius: '16px', fontSize: '16px', fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px' }}
                 >
-                  {isSubmitting ? <><Loader2 size={20} className="spinner" /> Menganalisis...</> : 'Kirim Umpan Balik'}
+                  {isSubmitting ? <><Loader2 size={20} className="spinner" /> Mengirim...</> : 'Kirim Umpan Balik'}
                 </button>
              </form>
           </div>

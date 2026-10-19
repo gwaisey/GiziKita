@@ -262,7 +262,8 @@ class AuthService {
       .eq('role', 'admin_sekolah')
       .is('school_id', null);
     
-    if (error || !data) return [];
+    if (error) throw error;
+    if (!data) return [];
     
     return data.map((profile: any) => ({
       id: profile.id,
@@ -310,8 +311,14 @@ class AuthService {
         if (profError) throw profError;
       }
 
-      // Refresh local store
-      await useAuthStore.getState().fetchProfile(user.id);
+      // Reflect the confirmed profile write immediately without an extra read.
+      useAuthStore.getState().setCurrentUser({
+        ...user,
+        ...(data.name !== undefined ? { name: data.name } : {}),
+        ...(data.username !== undefined ? { username: data.username } : {}),
+        ...(data.instansi !== undefined ? { instansi: data.instansi } : {}),
+        ...(data.avatar_url !== undefined ? { avatar_url: data.avatar_url } : {}),
+      });
       
       AuditService.log({ action: 'UPDATE_PROFILE', new_data: data });
       return { success: true };
@@ -331,7 +338,7 @@ class AuthService {
       if (error) throw error;
       
       // Notify the user about approval
-      await NotificationService.notify(
+      void NotificationService.notify(
         userId,
         'Akun Disetujui!',
         'Selamat! Akun instansi Anda telah diverifikasi oleh pusat. Sekarang Anda bisa mengakses Dashboard Logistik.',

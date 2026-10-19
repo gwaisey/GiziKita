@@ -35,6 +35,8 @@ const STATUS_ICONS: Record<VehicleStatus, React.ReactNode> = {
 export default function VehiclesPage() {
   const { currentUser } = useAuthStore();
   const vehicles = useVehicleStore((state) => state.vehicles);
+  const vehicleError = useVehicleStore((state) => state.error);
+  const vehicleLoading = useVehicleStore((state) => state.loading);
   const selectedCity = useVehicleStore((state) => state.selectedCity);
   const { loadVehicles, subscribeRealtime } = useVehicleStore((state) => state.actions);
   const [selectedVehicle, setSelectedVehicle] = useState<Vehicle | null>(null);
@@ -42,7 +44,7 @@ export default function VehiclesPage() {
   useEffect(() => {
     if (!currentUser) return;
 
-    loadVehicles();
+    void loadVehicles().catch(() => undefined);
     const unsubscribe = subscribeRealtime();
     return unsubscribe;
   }, [currentUser, loadVehicles, subscribeRealtime]);
@@ -90,6 +92,13 @@ export default function VehiclesPage() {
         </div>
       </div>
 
+      {vehicleError && (
+        <div role="alert" style={{ margin: '16px 24px', padding: '14px 18px', background: '#fff3cd', borderRadius: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px' }}>
+          <span>{vehicleError}</span>
+          <button type="button" onClick={() => void loadVehicles().catch(() => undefined)} disabled={vehicleLoading}>Coba lagi</button>
+        </div>
+      )}
+
       {/* Stats & Filtering */}
       <div className="vehicles-control-panel">
         <VehicleStats />
@@ -109,7 +118,9 @@ export default function VehiclesPage() {
         <aside className="vehicles-sidebar">
           <h3 className="sidebar-title">Daftar Kendaraan</h3>
           <div className="vehicle-list">
-            {filteredList.length === 0 ? (
+            {vehicleLoading && filteredList.length === 0 ? (
+              <div className="vehicle-list-empty">Memuat kendaraan...</div>
+            ) : filteredList.length === 0 ? (
               <div className="vehicle-list-empty">
                 <Truck size={32} style={{ opacity: 0.2 }} />
                 <p>Belum ada data kendaraan di {selectedCity}.</p>

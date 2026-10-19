@@ -2,6 +2,7 @@ import { render, screen } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import VehicleMap from '@/src/components/VehicleMap';
 import { useVehicleStore, Vehicle } from '@/js/store/vehicleStore';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import '@testing-library/jest-dom';
 
 // Menggunakan mock global dari test/mocks/react-map-gl.tsx
@@ -22,6 +23,11 @@ const mockVehicles: Vehicle[] = [
   }
 ];
 
+function renderWithQueryClient(ui: React.ReactElement) {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(<QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>);
+}
+
 describe('VehicleMap Component', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -34,7 +40,7 @@ describe('VehicleMap Component', () => {
   });
 
   it('renders without crashing and displays the map legend', () => {
-    render(<VehicleMap />);
+    renderWithQueryClient(<VehicleMap />);
     
     // Check if map legend exists
     expect(screen.getByText('Keterangan Peta')).toBeInTheDocument();
@@ -46,7 +52,7 @@ describe('VehicleMap Component', () => {
 
   it('renders SelectedVehiclePanel reactively when a vehicle is selected via store', () => {
     // We simulate a selected vehicle from the parent
-    render(<VehicleMap selectedVehicle={mockVehicles[0]} />);
+    renderWithQueryClient(<VehicleMap selectedVehicle={mockVehicles[0]} />);
     
     // The panel should render the license plate
     expect(screen.getByText('B 1234 BGN')).toBeInTheDocument();

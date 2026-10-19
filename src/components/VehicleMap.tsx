@@ -1,14 +1,17 @@
 'use client';
 
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import MapGL, { NavigationControl, FullscreenControl, Source, Layer, MapRef, Marker } from 'react-map-gl/mapbox';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import type { FeatureCollection, LineString } from 'geojson';
 import { useVehicleStore, Vehicle } from '@/js/store/vehicleStore';
+import { useQuery } from '@tanstack/react-query';
 import { INDONESIA_514_REGIONS } from '@/js/data/indonesia_regions';
 import VehicleService, { VEHICLE_STATUS_META } from '@/js/services/VehicleService';
 import { AlertTriangle, MapPin, Navigation, School, Trash2, User, X, Zap } from 'lucide-react';
 import { supabase } from '@/js/core/SupabaseClient';
+import { queryKeys } from '@/src/lib/queryKeys';
 
 const INDONESIA_CENTER = { latitude: -2.5, longitude: 118.0 };
 
@@ -22,6 +25,7 @@ interface VehicleMapProps {
 }
 
 export default function VehicleMap({ onVehicleSelect, selectedVehicle }: VehicleMapProps) {
+  const queryClient = useQueryClient();
   const mapRef = useRef<MapRef>(null);
   const { vehicles, selectedCity, hasDemoData } = useVehicleStore();
   const { setSelectedCity, setHasDemoData } = useVehicleStore((state) => state.actions);
@@ -44,20 +48,20 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
   const [simulationActive, setSimulationActive] = useState(false);
   const [mapStatus, setMapStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [mapError, setMapError] = useState<string>('');
-  const [sppgUnits, setSppgUnits] = useState<any[]>([]);
-  const [schools, setSchools] = useState<any[]>([]);
-
-  // Fetch Logistics Infrastructure (Hubs & Schools)
-  useEffect(() => {
-    async function fetchInfrastructure() {
-      const { data: hubData } = await supabase.from('sppg_units').select('*');
-      setSppgUnits(hubData || []);
-
-      const { data: schoolData } = await supabase.from('schools').select('*');
-      setSchools(schoolData || []);
-    }
-    fetchInfrastructure();
-  }, [hasDemoData]); // Refresh when seeding happens
+  const infrastructureQuery = useQuery({
+    queryKey: queryKeys.infrastructure,
+    queryFn: async () => {
+      const [hubsResult, schoolsResult] = await Promise.all([
+        supabase.from('sppg_units').select('*'),
+        supabase.from('schools').select('*'),
+      ]);
+      if (hubsResult.error) throw hubsResult.error;
+      if (schoolsResult.error) throw schoolsResult.error;
+      return { sppgUnits: hubsResult.data ?? [], schools: schoolsResult.data ?? [] };
+    },
+  });
+  const sppgUnits: any[] = infrastructureQuery.data?.sppgUnits ?? [];
+  const schools: any[] = infrastructureQuery.data?.schools ?? [];
 
   // --- Auto-Navigate to Selected Region ---
   useEffect(() => {
@@ -892,6 +896,7 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
                 alert(result.message);
               } else {
                 setHasDemoData(true);
+                void queryClient.invalidateQueries({ queryKey: queryKeys.infrastructure });
                 // 3. ATOMIC LOAD: Fetch and force immediate render
                 const freshData = await useVehicleStore.getState().actions.loadVehicles();
                 if (freshData && freshData.length > 0) {
@@ -964,6 +969,7 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
                 const clearResult = await VehicleService.clearDemoData();
                 if (clearResult.success) {
                   setHasDemoData(false);
+                  void queryClient.invalidateQueries({ queryKey: queryKeys.infrastructure });
                 } else {
                   alert(`Gagal membersihkan data: ${clearResult.message}`);
                   // Pulihkan state lokal jika pembersihan DB gagal

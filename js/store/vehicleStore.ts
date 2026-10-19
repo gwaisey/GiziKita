@@ -37,6 +37,7 @@ export interface Vehicle {
 interface VehicleState {
   vehicles: Vehicle[];
   loading: boolean;
+  error: string | null;
   selectedCity: string;
   hasDemoData: boolean; // Tracking if demo data is currently seeded
   actions: {
@@ -51,28 +52,31 @@ export const useVehicleStore = create<VehicleState>()(
   devtools((set) => ({
     vehicles: [],
     loading: false,
+    error: null,
     selectedCity: 'Semua',
     hasDemoData: false,
     actions: {
       setSelectedCity: (city: string) => set({ selectedCity: city }),
       setHasDemoData: (val: boolean) => set({ hasDemoData: val }),
       loadVehicles: async () => {
-        set({ loading: true });
-        const { data, error } = await supabase.from('vehicles').select('*');
-        let fetchedVehicles: Vehicle[] = [];
-        
-        if (error) {
-          console.error('Failed to load vehicles:', error.message, error.details, error.hint);
-        }
-        else {
-          fetchedVehicles = data ?? [];
+        set({ loading: true, error: null });
+        try {
+          const { data, error } = await supabase.from('vehicles').select('*');
+          if (error) throw error;
+          const fetchedVehicles: Vehicle[] = data ?? [];
           set({ 
             vehicles: fetchedVehicles,
+            error: null,
             hasDemoData: fetchedVehicles.length > 50 // Assume > 50 means demo data is active
           });
+          return fetchedVehicles;
+        } catch (error: any) {
+          console.error('Failed to load vehicles:', error?.message || error);
+          set({ error: error?.message || 'Gagal memuat kendaraan.' });
+          throw error;
+        } finally {
+          set({ loading: false });
         }
-        set({ loading: false });
-        return fetchedVehicles;
       },
       subscribeRealtime: () => {
         const existingChannel = supabase.getChannels().find((c: any) => c.topic === 'realtime:public:vehicles');
@@ -140,6 +144,10 @@ export const useVehicleStore = create<VehicleState>()(
 
                 newVehicles[idx] = updatedVehicle;
                 return { vehicles: newVehicles };
+              }
+
+              if (payload.eventType === 'UPDATE' && idx === -1) {
+                return { vehicles: [...state.vehicles, newVehicle] };
               }
 
               return state;

@@ -69,7 +69,7 @@ export const useSchoolStore = create<SchoolState>((set, get) => ({
       return schools;
     } catch (err) {
       console.error(`Error fetching schools for ${province}:`, err);
-      return get().schoolsByProvince[province] || [];
+      throw err;
     } finally {
       set({ isLoading: false });
     }

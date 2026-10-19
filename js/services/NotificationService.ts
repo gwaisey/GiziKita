@@ -6,6 +6,9 @@ class NotificationService {
    * Fetch all notifications for the current user
    */
   async fetchNotifications(userId: string) {
+    const store = useNotificationStore.getState();
+    store.setLoading(true);
+    store.setError(null);
     const { data, error } = await supabase
       .from('notifications')
       .select('*')
@@ -15,16 +18,21 @@ class NotificationService {
 
     if (error) {
       console.error('Error fetching notifications:', error);
-      return;
+      useNotificationStore.getState().setError(error.message || 'Gagal memuat notifikasi.');
+      useNotificationStore.getState().setLoading(false);
+      throw error;
     }
 
     useNotificationStore.getState().setNotifications(data as Notification[]);
+    useNotificationStore.getState().setLoading(false);
   }
 
   /**
    * Mark a single notification as read
    */
   async markAsRead(id: string) {
+    const previous = useNotificationStore.getState().notifications;
+    useNotificationStore.getState().markAsRead(id);
     const { error } = await supabase
       .from('notifications')
       .update({ is_read: true })
@@ -32,16 +40,17 @@ class NotificationService {
 
     if (error) {
       console.error('Error marking notification as read:', error);
+      useNotificationStore.getState().setNotifications(previous);
       return;
     }
-
-    useNotificationStore.getState().markAsRead(id);
   }
 
   /**
    * Mark all notifications for the user as read
    */
   async markAllAsRead(userId: string) {
+    const previous = useNotificationStore.getState().notifications;
+    useNotificationStore.getState().markAllAsRead();
     const { error } = await supabase
       .from('notifications')
       .update({ is_read: true })
@@ -50,10 +59,9 @@ class NotificationService {
 
     if (error) {
       console.error('Error marking all notifications as read:', error);
+      useNotificationStore.getState().setNotifications(previous);
       return;
     }
-
-    useNotificationStore.getState().markAllAsRead();
   }
 
   /**

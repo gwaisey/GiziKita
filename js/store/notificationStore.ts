@@ -14,6 +14,10 @@ export interface Notification {
 interface NotificationState {
   notifications: Notification[];
   unreadCount: number;
+  loading: boolean;
+  error: string | null;
+  setLoading: (loading: boolean) => void;
+  setError: (error: string | null) => void;
   setNotifications: (notifs: Notification[]) => void;
   addNotification: (notif: Notification) => void;
   markAsRead: (id: string) => void;
@@ -23,6 +27,11 @@ interface NotificationState {
 export const useNotificationStore = create<NotificationState>((set) => ({
   notifications: [],
   unreadCount: 0,
+  loading: false,
+  error: null,
+
+  setLoading: (loading) => set({ loading }),
+  setError: (error) => set({ error }),
   
   setNotifications: (notifs) => set({ 
     notifications: notifs,

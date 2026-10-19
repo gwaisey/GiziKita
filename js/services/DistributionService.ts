@@ -22,7 +22,6 @@ type DistributionLog = {
 class DistributionService {
   private tableName = 'distribution_reports';
   private bucketName = 'distribution-photos';
-  private cache = new Map<string, any>();
 
   private get currentUser(): UserProfile | null {
     return AuthService.currentUser;
@@ -30,24 +29,9 @@ class DistributionService {
 
 
   async getHistory(): Promise<any[]> {
-    try {
-      const user = this.currentUser;
-      if (!user) return [];
+    const user = this.currentUser;
+    if (!user) return [];
 
-      const cacheKey = `history_${user.id}`;
-      if (this.cache.has(cacheKey)) {
-        this._refreshHistoryCache(cacheKey);
-        return this.cache.get(cacheKey);
-      }
-
-      return await this._fetchHistory(user, cacheKey);
-    } catch (err) {
-      console.error('Error fetching distribution history:', err);
-      return [];
-    }
-  }
-
-  private async _fetchHistory(user: UserProfile, cacheKey: string): Promise<any[]> {
     let query = supabase
       .from(this.tableName)
       .select(`
@@ -79,60 +63,29 @@ class DistributionService {
       schoolName: log.schools ? log.schools.name : 'Sekolah Umum'
     }));
 
-    this.cache.set(cacheKey, formatted);
     return formatted;
   }
 
-  private async _refreshHistoryCache(cacheKey: string) {
-    const user = this.currentUser;
-    if (user) this._fetchHistory(user, cacheKey);
-  }
-
   async checkTodayReport(): Promise<boolean> {
-    try {
-      const user = this.currentUser;
-      if (!user || !user.school_id || user.role === 'admin_pusat') return false;
-      
-      const today = new Date().toISOString().split('T')[0];
-      const cacheKey = `today_${user.id}_${today}`;
-      if (this.cache.has(cacheKey)) return this.cache.get(cacheKey);
+    const user = this.currentUser;
+    if (!user || !user.school_id || user.role === 'admin_pusat') return false;
 
-      const { data, error } = await supabase
-        .from(this.tableName)
-        .select('id')
-        .eq('date', today)
-        .eq('school_id', user.school_id)
-        .limit(1);
+    const today = new Date().toISOString().split('T')[0];
+    const { data, error } = await supabase
+      .from(this.tableName)
+      .select('id')
+      .eq('date', today)
+      .eq('school_id', user.school_id)
+      .limit(1);
 
-      if (error) throw error;
-      const result = data.length > 0;
-      this.cache.set(cacheKey, result);
-      return result;
-    } catch (err) {
-      console.error('Error checking today report:', err);
-      return false;
-    }
+    if (error) throw error;
+    return data.length > 0;
   }
 
   async getTodayMetrics(): Promise<any> {
-    try {
-      const user = this.currentUser;
-      if (!user) return { totalReceived: 0, successRate: 0, issues: 0 };
-      
-      const cacheKey = `metrics_${user.id}`;
-      if (this.cache.has(cacheKey)) {
-        this._refreshMetricsCache(cacheKey);
-        return this.cache.get(cacheKey);
-      }
+    const user = this.currentUser;
+    if (!user) return { totalReceived: 0, successRate: 0, issues: 0 };
 
-      return await this._fetchMetrics(user, cacheKey);
-    } catch (err) {
-      console.error('Error getting metrics:', err);
-      return { totalReceived: 0, successRate: 0, issues: 0 };
-    }
-  }
-
-  private async _fetchMetrics(user: UserProfile, cacheKey: string): Promise<any> {
     const currentMonth = new Date().toISOString().slice(0, 7);
     
     let query = supabase
@@ -158,20 +111,11 @@ class DistributionService {
     });
 
     const successRate = totalTarget > 0 ? Math.round((totalReceived / totalTarget) * 100) : 0;
-    const result = { totalReceived, successRate, issues };
-    this.cache.set(cacheKey, result);
-    return result;
-  }
-
-  private async _refreshMetricsCache(cacheKey: string) {
-    const user = this.currentUser;
-    if (user) this._fetchMetrics(user, cacheKey);
+    return { totalReceived, successRate, issues };
   }
 
   async prefetch() {
-    this.getHistory();
-    this.getTodayMetrics();
-    this.checkTodayReport();
+    await Promise.all([this.getHistory(), this.getTodayMetrics(), this.checkTodayReport()]);
   }
 
   async submitReport(formData: any): Promise<any> {
@@ -249,9 +193,6 @@ class DistributionService {
         }
       });
 
-      // Clear cache to show new data
-      this.cache.clear();
-      
       return savedLog;
     } catch (err: any) {
       if (err.errors) {

@@ -23,7 +23,9 @@ import AuthService from '@/js/services/AuthService';
 import SchoolService from '@/js/services/SchoolService';
 import { useAuthStore } from '@/js/store/authStore';
 import { useUIStore } from '@/js/store/uiStore';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { UserProfile, School } from '@/js/types';
+import { queryKeys } from '@/src/lib/queryKeys';
 
 const roleLabels: Record<string, string> = {
   admin_pusat: 'Admin Pusat',
@@ -43,12 +45,24 @@ export default function ProfilePage() {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-  const [pendingUsers, setPendingUsers] = useState<UserProfile[]>([]);
-  const [isLoadingPending, setIsLoadingPending] = useState(false);
-  const [pendingSchools, setPendingSchools] = useState<School[]>([]);
-  const [isLoadingPendingSchools, setIsLoadingPendingSchools] = useState(false);
   const [approvalTab, setApprovalTab] = useState<'schools' | 'users'>('schools');
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+  const canReview = currentUser?.role === 'admin_pusat';
+  const pendingUsersQuery = useQuery({
+    queryKey: queryKeys.pendingUsers,
+    queryFn: () => AuthService.getPendingUsers(),
+    enabled: canReview,
+  });
+  const pendingSchoolsQuery = useQuery({
+    queryKey: queryKeys.pendingSchools,
+    queryFn: () => SchoolService.getPendingSchools(),
+    enabled: canReview,
+  });
+  const pendingUsers = pendingUsersQuery.data ?? [];
+  const pendingSchools = pendingSchoolsQuery.data ?? [];
+  const isLoadingPending = pendingUsersQuery.isPending;
+  const isLoadingPendingSchools = pendingSchoolsQuery.isPending;
 
   useEffect(() => {
     if (isInitialized && !currentUser) {
@@ -60,41 +74,8 @@ export default function ProfilePage() {
       setUsername(currentUser.username || '');
       setInstansi(currentUser.instansi || '');
       setAvatarPreview(currentUser.avatar_url || null);
-
-      if (currentUser.role === 'admin_pusat') {
-        fetchPendingUsers();
-        fetchPendingSchools();
-      }
     }
   }, [isInitialized, currentUser, router]);
-
-  const fetchPendingUsers = async () => {
-    if (isLoadingPending) return;
-    setIsLoadingPending(true);
-    try {
-      const pending = await AuthService.getPendingUsers();
-      setPendingUsers(pending);
-    } catch (err) {
-      console.error('Error fetching pending users:', err);
-      showToast('Gagal memuat antrean persetujuan.');
-    } finally {
-      setIsLoadingPending(false);
-    }
-  };
-
-  const fetchPendingSchools = async () => {
-    if (isLoadingPendingSchools) return;
-    setIsLoadingPendingSchools(true);
-    try {
-      const schools = await SchoolService.getPendingSchools();
-      setPendingSchools(schools);
-    } catch (err) {
-      console.error('Error fetching pending schools:', err);
-      showToast('Gagal memuat antrean pendaftaran sekolah.');
-    } finally {
-      setIsLoadingPendingSchools(false);
-    }
-  };
 
   const handleSaveProfile = async () => {
     setIsSaving(true);
@@ -119,33 +100,53 @@ export default function ProfilePage() {
     }
   };
 
-  const handleApproveUser = async (userId: string) => {
-    try {
+  const approveUserMutation = useMutation({
+    mutationFn: async (userId: string) => {
       const result = await AuthService.approveUser(userId);
-      if (result.success) {
-        showToast('Akun berhasil disetujui.');
-        fetchPendingUsers();
-      } else {
-        showToast(result.message || 'Gagal menyetujui akun.');
-      }
-    } catch (err) {
-      showToast('Terjadi kesalahan.');
-    }
-  };
+      if (!result.success) throw new Error(result.message || 'Gagal menyetujui akun.');
+      return userId;
+    },
+    onMutate: async (userId) => {
+      await queryClient.cancelQueries({ queryKey: queryKeys.pendingUsers });
+      const previous = queryClient.getQueryData<UserProfile[]>(queryKeys.pendingUsers);
+      queryClient.setQueryData<UserProfile[]>(queryKeys.pendingUsers, (items = []) => items.filter((user) => user.id !== userId));
+      return { previous };
+    },
+    onError: (error, _userId, context) => {
+      if (context?.previous) queryClient.setQueryData(queryKeys.pendingUsers, context.previous);
+      showToast(error instanceof Error ? error.message : 'Gagal menyetujui akun.');
+    },
+    onSuccess: () => showToast('Akun berhasil disetujui.'),
+    onSettled: () => { void queryClient.invalidateQueries({ queryKey: queryKeys.pendingUsers }); },
+  });
 
-  const handleApproveSchool = async (schoolId: string, schoolName: string) => {
-    try {
-      const result = await SchoolService.approveSchool(schoolId, schoolName);
-      if (result.success) {
-        showToast(`Sekolah ${schoolName} berhasil disetujui & berstatus aktif!`);
-        fetchPendingSchools();
-      } else {
-        showToast(result.message || 'Gagal menyetujui sekolah.');
-      }
-    } catch (err) {
-      showToast('Terjadi kesalahan koneksi.');
-    }
-  };
+  const approveSchoolMutation = useMutation({
+    mutationFn: async ({ id, name }: { id: string; name: string }) => {
+      const result = await SchoolService.approveSchool(id, name);
+      if (!result.success) throw new Error(result.message || 'Gagal menyetujui sekolah.');
+      return { id, name };
+    },
+    onMutate: async ({ id }) => {
+      await queryClient.cancelQueries({ queryKey: queryKeys.pendingSchools });
+      const previous = queryClient.getQueryData<School[]>(queryKeys.pendingSchools);
+      queryClient.setQueryData<School[]>(queryKeys.pendingSchools, (items = []) => items.filter((school) => String(school.id) !== id));
+      return { previous };
+    },
+    onError: (error, _school, context) => {
+      if (context?.previous) queryClient.setQueryData(queryKeys.pendingSchools, context.previous);
+      showToast(error instanceof Error ? error.message : 'Gagal menyetujui sekolah.');
+    },
+    onSuccess: ({ name }) => showToast(`Sekolah ${name} berhasil disetujui & berstatus aktif!`),
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.pendingSchools });
+      void queryClient.invalidateQueries({ queryKey: ['schools'] });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.infrastructure });
+      void queryClient.invalidateQueries({ queryKey: ['logistics'] });
+    },
+  });
+
+  const handleApproveUser = (userId: string) => approveUserMutation.mutate(userId);
+  const handleApproveSchool = (schoolId: string, schoolName: string) => approveSchoolMutation.mutate({ id: schoolId, name: schoolName });
 
   const handleLogout = async () => {
     await AuthService.logout();
@@ -356,7 +357,9 @@ export default function ProfilePage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {isLoadingPendingSchools ? (
+                      {pendingSchoolsQuery.isError ? (
+                        <tr><td colSpan={6}><div className="table-state">Gagal memuat pendaftaran sekolah. <button onClick={() => void pendingSchoolsQuery.refetch()}>Coba lagi</button></div></td></tr>
+                      ) : isLoadingPendingSchools ? (
                         <tr>
                           <td colSpan={6}>
                             <div className="table-state">
@@ -397,6 +400,7 @@ export default function ProfilePage() {
                               <button 
                                 className="approve-btn" 
                                 onClick={() => handleApproveSchool(school.id, school.name)}
+                                disabled={approveSchoolMutation.isPending}
                                 style={{ background: 'var(--maroon)', color: '#fff', border: 'none', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '6px', fontWeight: 700 }}
                               >
                                 <CheckCircle2 size={16} />
@@ -436,7 +440,9 @@ export default function ProfilePage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {isLoadingPending ? (
+                      {pendingUsersQuery.isError ? (
+                        <tr><td colSpan={5}><div className="table-state">Gagal memuat antrean akun. <button onClick={() => void pendingUsersQuery.refetch()}>Coba lagi</button></div></td></tr>
+                      ) : isLoadingPending ? (
                         <tr>
                           <td colSpan={5}>
                             <div className="table-state">
@@ -463,9 +469,9 @@ export default function ProfilePage() {
                               </span>
                             </td>
                             <td data-label="Aksi">
-                              <button className="approve-btn" onClick={() => handleApproveUser(user.id)}>
-                                <CheckCircle2 size={16} />
-                                Setujui
+                              <button className="approve-btn" onClick={() => handleApproveUser(user.id)} disabled={approveUserMutation.isPending}>
+                                {approveUserMutation.isPending && approveUserMutation.variables === user.id ? <Loader2 size={16} className="spinner" /> : <CheckCircle2 size={16} />}
+                                {approveUserMutation.isPending && approveUserMutation.variables === user.id ? 'Memproses...' : 'Setujui'}
                               </button>
                             </td>
                           </tr>

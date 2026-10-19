@@ -6,6 +6,7 @@ import Navbar from "@/src/components/Navbar";
 import Footer from "@/src/components/Footer";
 import Toast from "@/src/components/Toast";
 import AuthInitializer from "@/src/components/AuthInitializer";
+import QueryProvider from "@/src/components/QueryProvider";
 
 export const metadata: Metadata = {
   title: "GiziKita — Program Makan Bergizi Gratis",
@@ -28,13 +29,15 @@ export default function RootLayout({
         />
       </head>
       <body>
-        <AuthInitializer />
-        <Navbar />
-        <main id="app-root" style={{ minHeight: '80vh' }}>
-          {children}
-        </main>
-        <Footer />
-        <Toast />
+        <QueryProvider>
+          <AuthInitializer />
+          <Navbar />
+          <main id="app-root" style={{ minHeight: '80vh' }}>
+            {children}
+          </main>
+          <Footer />
+          <Toast />
+        </QueryProvider>
       </body>
     </html>
   );

@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { useQueryClient } from '@tanstack/react-query';
 import { 
   GraduationCap, 
   Building2, 
@@ -16,10 +17,12 @@ import {
 } from 'lucide-react';
 import SchoolService from '@/js/services/SchoolService';
 import { useUIStore } from '@/js/store/uiStore';
+import { queryKeys } from '@/src/lib/queryKeys';
 
 export default function RegisterSchoolPage() {
   const router = useRouter();
   const showToast = useUIStore((state) => state.showToast);
+  const queryClient = useQueryClient();
 
   // Form State
   const [name, setName] = useState('');
@@ -76,6 +79,11 @@ export default function RegisterSchoolPage() {
       });
 
       if (result.success) {
+        void queryClient.invalidateQueries({ queryKey: ['schools'] });
+        void queryClient.invalidateQueries({ queryKey: queryKeys.pendingSchools });
+        void queryClient.invalidateQueries({ queryKey: queryKeys.provinces });
+        void queryClient.invalidateQueries({ queryKey: queryKeys.infrastructure });
+        void queryClient.invalidateQueries({ queryKey: ['logistics'] });
         setIsSuccess(true);
         showToast('Pendaftaran sekolah berhasil dikirim!');
         window.scrollTo({ top: 0, behavior: 'smooth' });

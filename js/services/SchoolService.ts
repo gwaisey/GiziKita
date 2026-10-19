@@ -33,24 +33,16 @@ class SchoolService {
         status: 'Pendaftaran Baru'
       };
 
-      // 3. Coba simpan ke Supabase dengan batas timeout 5 detik agar UI tidak macet/ngeload selamanya
-      try {
-        const insertPromise = supabase.from('schools').insert([dbPayload]).select();
-        const timeoutPromise = new Promise<{ error: any }>((_, reject) => 
-          setTimeout(() => reject(new Error('TIMEOUT')), 5000)
-        );
-
-        const res: any = await Promise.race([insertPromise, timeoutPromise]);
-        if (res?.error) {
-          console.warn('Supabase schools insert note:', res.error.message || res.error);
-        }
-      } catch (err: any) {
-        console.warn('Supabase schools insert skipped/timed out:', err?.message || err);
-      }
+      const { data: savedSchool, error: insertError } = await supabase
+        .from('schools')
+        .insert([dbPayload])
+        .select('id')
+        .single();
+      if (insertError) throw insertError;
 
       // 4. Buat objek data sekolah pendaftaran baru
       const newSchool: School = {
-        id: String(Date.now()),
+        id: String(savedSchool.id),
         name: data.name,
         npsn: data.npsn,
         address: data.address,
@@ -107,11 +99,11 @@ class SchoolService {
           .select('*')
           .eq('status', 'Pendaftaran Baru');
 
-        if (!error && data) {
-          pendingList = data as School[];
-        }
+        if (error) throw error;
+        if (data) pendingList = data as School[];
       } catch (dbErr) {
-        console.warn('Supabase getPendingSchools note:', dbErr);
+        console.error('Supabase getPendingSchools failed:', dbErr);
+        throw dbErr;
       }
 
       // 2. Ambil dari localStorage (jika data tersimpan saat registrasi di browser)
@@ -138,20 +130,24 @@ class SchoolService {
       return pendingList;
     } catch (err) {
       console.error('Error fetching pending schools:', err);
-      return [];
+      throw err;
     }
   }
 
   async approveSchool(schoolId: string, schoolName: string): Promise<{ success: boolean; message?: string }> {
     try {
-      // 1. Update di Supabase jika id numerik valid
-      try {
-        await supabase
-          .from('schools')
-          .update({ status: 'Pilot MBG' })
-          .eq('name', schoolName);
-      } catch (dbErr) {
-        console.warn('Supabase school approve warn:', dbErr);
+      const isDatabaseId = /^\d+$/.test(schoolId);
+      let updateQuery = supabase
+        .from('schools')
+        .update({ status: 'Pilot MBG' })
+        .select('id');
+      updateQuery = isDatabaseId
+        ? updateQuery.eq('id', Number(schoolId))
+        : updateQuery.eq('name', schoolName);
+      const { data, error } = await updateQuery;
+      if (error) throw error;
+      if (!data?.length) {
+        throw new Error('Sekolah tidak ditemukan di database. Data lokal tidak dapat disetujui sebagai data resmi.');
       }
 
       // 2. Update di localStorage
@@ -172,9 +168,6 @@ class SchoolService {
           console.warn('Error updating local approved school:', storageErr);
         }
       }
-
-      // 3. Refresh store sekolah
-      await useSchoolStore.getState().getSchoolsByProvince('Semua');
 
       return { success: true };
     } catch (err: any) {

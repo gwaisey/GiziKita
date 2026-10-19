@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { 
   MapPin, 
   Info, 
@@ -14,63 +15,47 @@ import SchoolService from '@/js/services/SchoolService';
 import { School } from '@/js/types';
 import { useAuthStore } from '@/js/store/authStore';
 import { useUIStore } from '@/js/store/uiStore';
+import { queryKeys } from '@/src/lib/queryKeys';
 
 export default function SchoolListPage() {
   const { currentUser } = useAuthStore();
   const showToast = useUIStore((state) => state.showToast);
   const isAdminPusat = currentUser?.role === 'admin_pusat';
 
-  const [schools, setSchools] = useState<School[]>([]);
-  const [provinces, setProvinces] = useState<string[]>(['Semua']);
   const [activeFilter, setActiveFilter] = useState('Semua');
-  const [isLoading, setIsLoading] = useState(true);
-  const [retryCount, setRetryCount] = useState(0);
-
-  const handleApproveSchool = async (schoolId: string, schoolName: string) => {
-    try {
-      const result = await SchoolService.approveSchool(schoolId, schoolName);
-      if (result.success) {
-        showToast(`Sekolah ${schoolName} berhasil disetujui & berstatus Pilot MBG!`);
-        fetchSchools();
-      } else {
-        showToast(result.message || 'Gagal menyetujui sekolah.');
-      }
-    } catch (err) {
-      showToast('Terjadi kesalahan koneksi.');
-    }
-  };
-
-  useEffect(() => {
-    fetchProvinces();
-  }, []);
-
-  useEffect(() => {
-    fetchSchools();
-  }, [activeFilter, retryCount]);
-
-  const fetchProvinces = async () => {
-    try {
-      const data = await SchoolService.getProvinces();
-      setProvinces(data);
-    } catch (err) {
-      console.error('Failed to fetch provinces');
-    }
-  };
-
-  const fetchSchools = async () => {
-    setIsLoading(true);
-    try {
-      const data = await SchoolService.getSchoolsByProvince(activeFilter);
-      setSchools(data);
-    } catch (err) {
-      console.error('Failed to fetch schools');
-      if (retryCount < 3) {
-        setTimeout(() => setRetryCount(prev => prev + 1), 2000);
-      }
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  const queryClient = useQueryClient();
+  const schoolsQuery = useQuery({
+    queryKey: queryKeys.schools(activeFilter),
+    queryFn: () => SchoolService.getSchoolsByProvince(activeFilter),
+  });
+  const provincesQuery = useQuery({ queryKey: queryKeys.provinces, queryFn: () => SchoolService.getProvinces() });
+  const schools = schoolsQuery.data ?? [];
+  const provinces = provincesQuery.data ?? ['Semua'];
+  const isLoading = schoolsQuery.isPending;
+  const approveSchoolMutation = useMutation({
+    mutationFn: async ({ id, name }: { id: string; name: string }) => {
+      const result = await SchoolService.approveSchool(id, name);
+      if (!result.success) throw new Error(result.message || 'Gagal menyetujui sekolah.');
+      return { id, name };
+    },
+    onMutate: async ({ id }) => {
+      await queryClient.cancelQueries({ queryKey: queryKeys.schools(activeFilter) });
+      const previous = queryClient.getQueryData<School[]>(queryKeys.schools(activeFilter));
+      queryClient.setQueryData<School[]>(queryKeys.schools(activeFilter), (items = []) => items.map((school) => String(school.id) === id ? { ...school, status: 'Pilot MBG' } : school));
+      return { previous };
+    },
+    onError: (error, _variables, context) => {
+      if (context?.previous) queryClient.setQueryData(queryKeys.schools(activeFilter), context.previous);
+      showToast(error instanceof Error ? error.message : 'Gagal menyetujui sekolah.');
+    },
+    onSuccess: ({ name }) => showToast(`Sekolah ${name} berhasil disetujui & berstatus Pilot MBG!`),
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: ['schools'] });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.pendingSchools });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.infrastructure });
+    },
+  });
+  const handleApproveSchool = (schoolId: string, schoolName: string) => approveSchoolMutation.mutate({ id: schoolId, name: schoolName });
 
   return (
     <div style={{ background: 'var(--cream)', minHeight: '100vh', position: 'relative', overflow: 'hidden' }}>
@@ -105,7 +90,12 @@ export default function SchoolListPage() {
         </div>
 
         <div className="card" style={{ padding: 0, overflow: 'hidden', border: 'none', boxShadow: '0 30px 80px rgba(139,28,63,0.08)', borderRadius: '24px', background: '#fff' }}>
-          {isLoading && schools.length === 0 ? (
+              {schoolsQuery.isError && schools.length === 0 ? (
+                <div style={{ padding: '80px 20px', textAlign: 'center' }}>
+                  <p style={{ color: 'var(--maroon)', fontWeight: 700 }}>Gagal memuat daftar sekolah.</p>
+                  <button className="btn btn-primary" onClick={() => void schoolsQuery.refetch()}>Coba lagi</button>
+                </div>
+              ) : isLoading && schools.length === 0 ? (
             <div style={{ padding: '100px 0', textAlign: 'center' }}>
                <Loader2 className="spinner" size={48} color="var(--maroon)" />
                <p style={{ marginTop: '20px', color: 'var(--text-muted)', fontWeight: 600 }}>Menghubungkan ke database GiziKita...</p>
@@ -161,6 +151,7 @@ export default function SchoolListPage() {
                           {isAdminPusat && school.status === 'Pendaftaran Baru' && (
                             <button
                               onClick={() => handleApproveSchool(school.id, school.name)}
+                              disabled={approveSchoolMutation.isPending}
                               style={{
                                 padding: '6px 14px',
                                 borderRadius: '12px',
@@ -176,8 +167,8 @@ export default function SchoolListPage() {
                                 boxShadow: '0 2px 8px rgba(139,28,63,0.2)'
                               }}
                             >
-                              <CheckCircle2 size={14} />
-                              Setujui
+                              {approveSchoolMutation.isPending && approveSchoolMutation.variables?.id === String(school.id) ? <Loader2 size={14} className="spinner" /> : <CheckCircle2 size={14} />}
+                              {approveSchoolMutation.isPending && approveSchoolMutation.variables?.id === String(school.id) ? 'Memproses...' : 'Setujui'}
                             </button>
                           )}
                         </div>

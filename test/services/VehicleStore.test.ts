@@ -5,7 +5,7 @@ import { supabase } from '@/js/core/SupabaseClient';
 describe('vehicleStore', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    useVehicleStore.setState({ vehicles: [], loading: false });
+    useVehicleStore.setState({ vehicles: [], loading: false, error: null });
   });
 
   const mockVehicles: Vehicle[] = [
@@ -41,15 +41,17 @@ describe('vehicleStore', () => {
     expect(useVehicleStore.getState().loading).toBe(false);
   });
 
-  it('should handle load error gracefully', async () => {
+  it('should expose load errors and finish loading', async () => {
     const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const mockSelect = vi.fn().mockResolvedValue({ data: null, error: { message: 'Network error' } });
     (supabase.from as ReturnType<typeof vi.fn>).mockReturnValue({ select: mockSelect });
 
-    await useVehicleStore.getState().actions.loadVehicles();
+    await expect(useVehicleStore.getState().actions.loadVehicles()).rejects.toMatchObject({ message: 'Network error' });
 
     expect(consoleSpy).toHaveBeenCalled();
     expect(useVehicleStore.getState().vehicles).toEqual([]);
+    expect(useVehicleStore.getState().error).toBe('Network error');
+    expect(useVehicleStore.getState().loading).toBe(false);
     consoleSpy.mockRestore();
   });
 
