@@ -12,10 +12,16 @@ interface ChatMessage {
   content: string;
 }
 
+export interface MenuAnalysisResult {
+  text: string;
+  source: 'ai' | 'fallback';
+}
+
 
 class AIService {
   private CACHE_KEY = 'gizikita_ai_cache';
   private CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+  private AI_REQUEST_TIMEOUT_MS = 15_000;
   private MENU_CACHE_VERSION = 'menu-analysis-v2';
   private HELP_HISTORY_KEY = 'gizikita_help_history';
   
@@ -109,38 +115,35 @@ class AIService {
     } catch (e) {}
   }
 
-  private async _callAIProxy(action: string, payload: any, attempt: number = 1): Promise<string> {
-    const MAX_ATTEMPTS = 3;
-
+  private async _callAIProxy(action: string, payload: any): Promise<string> {
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
     try {
-      const { data, error } = await supabase.functions.invoke('ai-gateway', {
-        body: { action, payload }
+      const request = Promise.resolve().then(() =>
+        supabase.functions.invoke('ai-gateway', { body: { action, payload } })
+      );
+      const timeout = new Promise<never>((_, reject) => {
+        timeoutId = setTimeout(() => reject(new Error('AI_TIMEOUT')), this.AI_REQUEST_TIMEOUT_MS);
       });
+      const { data, error } = await Promise.race([request, timeout]);
 
       if (error) throw error;
-      if (data.error) throw new Error(typeof data.error === 'object' ? JSON.stringify(data.error) : data.error);
-
-      return data.text;
-    } catch (e: any) {
-      console.error(`AI Proxy Error (Attempt ${attempt}):`, e);
-      const msg = e.message || "";
-      const delayMatch = msg.match(/retryDelay":"(\d+)s"/);
-
-      if ((delayMatch || msg.includes('503') || msg.includes('429')) && attempt < MAX_ATTEMPTS) {
-        const waitSecs = delayMatch ? parseInt(delayMatch[1]) + 1 : (attempt * 3);
-        await new Promise(resolve => setTimeout(resolve, waitSecs * 1000));
-        return this._callAIProxy(action, payload, attempt + 1);
-      }
-      throw new Error(msg);
+      if (data?.error) throw new Error(typeof data.error === 'object' ? JSON.stringify(data.error) : data.error);
+      if (typeof data?.text !== 'string' || !data.text.trim()) throw new Error('AI returned an empty response');
+      return data.text.trim();
+    } catch (error: any) {
+      console.warn('AI analysis unavailable; using local fallback:', error?.message || error);
+      throw error instanceof Error ? error : new Error(String(error));
+    } finally {
+      if (timeoutId) clearTimeout(timeoutId);
     }
   }
 
-  public async getMenuAnalysis(day: string, items: string[]): Promise<string> {
+  public async getMenuAnalysisResult(day: string, items: string[]): Promise<MenuAnalysisResult> {
     const dayKey = day.toLowerCase();
     const cacheKey = `menu_${day}_${items.join('_')}`.toLowerCase().replace(/\s+/g, '');
     const cachedResult = this._getCache(cacheKey);
 
-    if (cachedResult) return cachedResult;
+    if (cachedResult) return { text: cachedResult, source: 'ai' };
 
     const verifiedLibrary: Record<string, string> = {
       'senin': 'Menu Senin kaya akan protein dari ayam dan telur yang penting untuk pembentukan jaringan tubuh anak.',
@@ -152,7 +155,9 @@ class AIService {
     };
 
     try {
-      if (this.inFlightRequests.has(cacheKey)) return this.inFlightRequests.get(cacheKey)!;
+      if (this.inFlightRequests.has(cacheKey)) {
+        return { text: await this.inFlightRequests.get(cacheKey)!, source: 'ai' };
+      }
 
       const promise = this._callAIProxy('getMenuAnalysis', { day, items });
       this.inFlightRequests.set(cacheKey, promise);
@@ -160,11 +165,16 @@ class AIService {
       const result = await promise;
       this._saveCache(cacheKey, result, { version: this.MENU_CACHE_VERSION, source: 'ai' });
       this.inFlightRequests.delete(cacheKey);
-      return result;
+      return { text: result, source: 'ai' };
     } catch (e) {
       this.inFlightRequests.delete(cacheKey);
-      return verifiedLibrary[dayKey] || this._constructLocalAnalysis(items);
+      return { text: verifiedLibrary[dayKey] || this._constructLocalAnalysis(items), source: 'fallback' };
     }
+  }
+
+  public async getMenuAnalysis(day: string, items: string[]): Promise<string> {
+    const result = await this.getMenuAnalysisResult(day, items);
+    return result.text;
   }
 
   private _constructLocalAnalysis(items: string[]): string {

@@ -24,6 +24,20 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
+async function withProviderTimeout(promise: Promise<any>, timeoutMs: number, provider: string): Promise<any> {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<any>((_, reject) => {
+        timeoutId = setTimeout(() => reject(new Error(`${provider} request timed out`)), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
@@ -130,6 +144,7 @@ Deno.serve(async (req: Request) => {
 
       const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
         method: 'POST',
+        signal: AbortSignal.timeout(10_000),
         headers: {
           'Authorization': `Bearer ${groqApiKey}`,
           'Content-Type': 'application/json'
@@ -162,7 +177,7 @@ Deno.serve(async (req: Request) => {
           const day = payload.day || 'ini';
           const items = payload.items || [];
           const prompt = `Analisa menu makan gratis hari ${day}: ${items.join(", ")}. Fokus HANYA pada manfaat gizi positif untuk pertumbuhan anak. Maks 3 kalimat. JANGAN gunakan emoji sama sekali.`
-          const result = await model.generateContent(prompt)
+          const result = await withProviderTimeout(model.generateContent(prompt), 10_000, modelName)
           const text = result.response.text()
           if (!text) throw new Error("AI returned empty response")
           return text
@@ -184,7 +199,7 @@ Deno.serve(async (req: Request) => {
               })),
           })
           const lastMsg = history[history.length - 1].content
-          const result = await chat.sendMessage(lastMsg)
+          const result = await withProviderTimeout(chat.sendMessage(lastMsg), 10_000, modelName)
           return result.response.text()
         }
       } catch (err) {

@@ -9,17 +9,21 @@ export default function MenuPage() {
   const [menu, setMenu] = useState<MenuData>({});
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
   const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
+  const [analysisSource, setAnalysisSource] = useState<'ai' | 'fallback' | null>(null);
   const [isLoadingAI, setIsLoadingAI] = useState(false);
   const analysisRef = useRef<HTMLDivElement>(null);
+  const requestIdRef = useRef(0);
 
   useEffect(() => {
     setMenu(MenuService.getMenu());
   }, []);
 
   const handleMenuClick = async (day: string, items: string[]) => {
+    const requestId = ++requestIdRef.current;
     setSelectedDay(day);
     setIsLoadingAI(true);
     setAiAnalysis(null);
+    setAnalysisSource(null);
 
     // Scroll to analysis section
     if (analysisRef.current) {
@@ -27,15 +31,16 @@ export default function MenuPage() {
     }
 
     try {
-      const result = await AIService.getMenuAnalysis(day, items);
-      // Give a small delay to make the AI "thinking" feel real and premium
-      setTimeout(() => {
-        setAiAnalysis(result);
-        setIsLoadingAI(false);
-      }, 800);
+      const result = await AIService.getMenuAnalysisResult(day, items);
+      if (requestId !== requestIdRef.current) return;
+      setAiAnalysis(result.text);
+      setAnalysisSource(result.source);
     } catch (err) {
-      setAiAnalysis("Maaf, asisten AI sedang sibuk. Namun secara umum, menu ini telah disesuaikan dengan standar gizi nasional.");
-      setIsLoadingAI(false);
+      if (requestId !== requestIdRef.current) return;
+      setAiAnalysis("Analisis sementara tidak tersedia. Menu ini dirancang untuk memberikan variasi protein, karbohidrat, serta sayuran bagi anak.");
+      setAnalysisSource('fallback');
+    } finally {
+      if (requestId === requestIdRef.current) setIsLoadingAI(false);
     }
   };
 
@@ -102,14 +107,21 @@ export default function MenuPage() {
                   <span>Asisten AI sedang menganalisis nutrisi...</span>
                 </div>
               ) : (
-                <p style={{ lineHeight: 1.8, fontSize: '15px', color: 'var(--text)', margin: 0 }}>
-                  {aiAnalysis?.split('\n').map((line, i) => (
-                    <React.Fragment key={i}>
-                      {line}
-                      <br />
-                    </React.Fragment>
-                  ))}
-                </p>
+                <>
+                  {analysisSource === 'fallback' && (
+                    <div style={{ marginBottom: '12px', fontSize: '12px', color: 'var(--text-muted)' }}>
+                      Analisis otomatis sedang lambat; ini ringkasan gizi sementara.
+                    </div>
+                  )}
+                  <p style={{ lineHeight: 1.8, fontSize: '15px', color: 'var(--text)', margin: 0 }}>
+                    {aiAnalysis?.split('\n').map((line, i) => (
+                      <React.Fragment key={i}>
+                        {line}
+                        <br />
+                      </React.Fragment>
+                    ))}
+                  </p>
+                </>
               )}
             </div>
           </div>

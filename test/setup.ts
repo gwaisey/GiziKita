@@ -22,6 +22,9 @@ vi.mock('@/js/core/SupabaseClient', () => ({
       signInWithPassword: vi.fn(),
       signOut: vi.fn(),
       signUp: vi.fn(),
-    }
+    },
+    functions: {
+      invoke: vi.fn(),
+    },
   }
 }));

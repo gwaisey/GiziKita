@@ -5,6 +5,7 @@ class AIService {
     // Simple Client-side Rate Limiting (Cooldown)
     this.lastCallTime = 0;
     this.cooldownMs = 2000; 
+    this.requestTimeoutMs = 15000;
     
     // Persistent Cache (localStorage) untuk menghemat kuota API
     this.CACHE_KEY = 'gizikita_ai_cache';
@@ -193,39 +194,31 @@ class AIService {
   /**
    * Memanggil Supabase Edge Function sebagai Proxy Aman dengan Retries Agresif
    */
-  async _callAIProxy(action, payload, attempt = 1) {
-    const MAX_ATTEMPTS = 3; 
-    this._checkRateLimit();
-
+  async _callAIProxy(action, payload) {
+    let timeoutId;
     try {
-      const { data, error } = await supabase.functions.invoke('ai-gateway', {
+      const request = Promise.resolve().then(() => supabase.functions.invoke('ai-gateway', {
         body: { action, payload }
+      }));
+      const timeout = new Promise((_, reject) => {
+        timeoutId = setTimeout(() => reject(new Error('AI_TIMEOUT')), this.requestTimeoutMs);
       });
-
+      const { data, error } = await Promise.race([request, timeout]);
       if (error) throw error;
-      if (data.error) throw new Error(typeof data.error === 'object' ? JSON.stringify(data.error) : data.error);
-
-      return data.text;
-    } catch (e) {
-      console.error(`AI Proxy Error (Attempt ${attempt}):`, e);
-      
-      const msg = e.message || "";
-      const delayMatch = msg.match(/retryDelay":"(\d+)s"/);
-
-      // Jika ada delay, atau error 503/429, kita tunggu dan coba lagi secara SILENT
-      if ((delayMatch || msg.includes('503') || msg.includes('429')) && attempt < MAX_ATTEMPTS) {
-        const waitSecs = delayMatch ? parseInt(delayMatch[1]) + 1 : (attempt * 3); 
-        console.log(`[AIService] Menunggu ${waitSecs} detik secara silent...`);
-        
-        await new Promise(resolve => setTimeout(resolve, waitSecs * 1000));
-        return this._callAIProxy(action, payload, attempt + 1);
-      }
-
-      throw new Error(msg);
+      if (data?.error) throw new Error(typeof data.error === 'object' ? JSON.stringify(data.error) : data.error);
+      if (typeof data?.text !== 'string' || !data.text.trim()) throw new Error('AI returned an empty response');
+      return data.text.trim();
+    } finally {
+      if (timeoutId) clearTimeout(timeoutId);
     }
   }
 
   async getMenuAnalysis(day, items) {
+    const result = await this.getMenuAnalysisResult(day, items);
+    return result.text;
+  }
+
+  async getMenuAnalysisResult(day, items) {
     const dayKey = day.toLowerCase();
     const cacheKey = this._buildMenuCacheKey(day, items);
     const cachedResult = this._getCache(cacheKey);
@@ -242,7 +235,7 @@ class AIService {
 
     // 1. Pakai cache lebih dulu agar hemat kuota dan respons tetap cepat
     if (cachedResult) {
-      return cachedResult;
+      return { text: cachedResult, source: 'ai' };
     }
 
     // 2. Jika belum ada cache, coba AI asli satu kali per kombinasi menu
@@ -255,13 +248,13 @@ class AIService {
         });
         return freshResult;
       });
-      return result;
+      return { text: result, source: 'ai' };
     } catch (e) {
       // 3. Jika AI sibuk / gagal, baru turun ke fallback lokal
       if (verifiedLibrary[dayKey]) {
-        return verifiedLibrary[dayKey];
+        return { text: verifiedLibrary[dayKey], source: 'fallback' };
       }
-      return this._constructLocalAnalysis(items);
+      return { text: this._constructLocalAnalysis(items), source: 'fallback' };
     }
   }
 

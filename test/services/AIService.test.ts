@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import AIService from '@/js/services/AIService';
+import { supabase } from '@/js/core/SupabaseClient';
+import { vi } from 'vitest';
 
 describe('AIService Sentiment Analysis', () => {
   it('should categorize feedback as "good" for positive keywords', async () => {
@@ -44,5 +46,17 @@ describe('AIService App Grounding', () => {
     const note = (AIService as any).buildGroundingNote('Ada sekolah penerima MBG di Jakarta');
     expect(note).toContain('Sumber kebenaran utama');
     expect(note).toContain('GiziKita');
+  });
+});
+
+describe('AIService menu analysis', () => {
+  it('returns a local fallback when the AI gateway returns an error', async () => {
+    vi.spyOn(supabase.functions, 'invoke').mockResolvedValue({ data: null, error: new Error('Gateway unavailable') } as any);
+
+    const result = await AIService.getMenuAnalysisResult('Senin', ['Nasi', 'Ayam']);
+
+    expect(result.source).toBe('fallback');
+    expect(result.text.length).toBeGreaterThan(0);
+    vi.restoreAllMocks();
   });
 });
