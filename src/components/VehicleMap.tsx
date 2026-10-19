@@ -272,8 +272,7 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
       for (const v of cityVehicles) {
         if (!isMounted) break;
         if (
-          v.route_geometry &&
-          v.route_geometry.length <= 4 &&
+          v.route_source !== 'mapbox_driving' &&
           v.last_lng &&
           v.last_lat &&
           v.destination_lng &&
@@ -463,10 +462,9 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
     onVehicleSelect?.(vehicle);
     fitSelectedVehicle(vehicle);
 
-    // Dynamically fetch Mapbox route if currently using a fallback route (length <= 4)
+    // Only show a vehicle's path after obtaining a road-verified route.
     if (
-      vehicle.route_geometry &&
-      vehicle.route_geometry.length <= 4 &&
+      vehicle.route_source !== 'mapbox_driving' &&
       vehicle.last_lng &&
       vehicle.last_lat &&
       vehicle.destination_lng &&
@@ -495,6 +493,8 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
     const vehicle = vehicles.find(v => v.id === selected.id) || selected;
     
     if (vehicle.last_lng === null || vehicle.last_lat === null) return null;
+
+    if (vehicle.route_source !== 'mapbox_driving') return null;
 
     let route = vehicle.route_geometry?.filter(coord => Array.isArray(coord) && coord.length >= 2) ?? [];
 

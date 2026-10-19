@@ -123,12 +123,15 @@ class VehicleService {
     }
     
     try {
-      const url = `https://api.mapbox.com/directions/v5/mapbox/driving/${start[0]},${start[1]};${end[0]},${end[1]}?geometries=geojson&overview=full&access_token=${mapboxToken}`;
+      const url = `https://api.mapbox.com/directions/v5/mapbox/driving/${start[0]},${start[1]};${end[0]},${end[1]}?geometries=geojson&overview=full&exclude=ferry&access_token=${mapboxToken}`;
       const res = await fetch(url);
       if (!res.ok) throw new Error(`Mapbox API responded with status ${res.status}`);
       const json = await res.json();
       const coords = json.routes?.[0]?.geometry?.coordinates;
-      return coords || null;
+      if (!Array.isArray(coords) || coords.length < 2 || coords.some((point: unknown) =>
+        !Array.isArray(point) || point.length < 2 || !Number.isFinite(point[0]) || !Number.isFinite(point[1])
+      )) return null;
+      return coords as number[][];
     } catch (err) {
       console.error('[MAPBOX ROUTE FETCH ERROR]', err);
       return null;
@@ -151,7 +154,7 @@ class VehicleService {
     useVehicleStore.setState(state => {
       const newVehicles = state.vehicles.map(v => {
         if (v.id === vehicleId) {
-          return { ...v, route_geometry: routeGeometry, route_progress: 0 };
+          return { ...v, route_geometry: routeGeometry, route_source: 'mapbox_driving' as const, route_progress: 0 };
         }
         return v;
       });
@@ -164,6 +167,7 @@ class VehicleService {
       id: vehicleId,
       license_plate: vehicle?.license_plate,
       route_geometry: routeGeometry,
+      route_source: 'mapbox_driving',
       route_progress: 0,
       updated_at: new Date().toISOString()
     });
@@ -281,6 +285,7 @@ class VehicleService {
         return {
           ...v,
           route_geometry: geometry,
+          route_source: 'demo_unverified',
           route_progress: progress,
           last_lat: v.last_lat, // Already set to station.lat in loop above
           last_lng: v.last_lng  // Already set to station.lng in loop above
@@ -470,6 +475,8 @@ class VehicleService {
       const stateUpdates: any[] = [];
 
       for (const v of vehicles) {
+        // Never simulate along generated/legacy polylines that may cross water.
+        if (v.route_source !== 'mapbox_driving' || !v.route_geometry || v.route_geometry.length < 2) continue;
         if (v.status === 'offline' || v.status === 'maintenance') continue;
 
         let newStatus = v.status;

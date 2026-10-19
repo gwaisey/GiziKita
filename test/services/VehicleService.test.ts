@@ -44,6 +44,7 @@ describe('VehicleService', () => {
       const urlCall = (global.fetch as any).mock.calls[0][0];
       expect(urlCall).toContain('api.mapbox.com/directions');
       expect(urlCall).toContain('mock-token');
+      expect(urlCall).toContain('exclude=ferry');
       expect(route).toEqual(mockCoords);
     });
 
@@ -68,7 +69,7 @@ describe('VehicleService', () => {
   });
 
   describe('updateVehicleRoute', () => {
-    it('should update route_geometry in Zustand store and queue to pendingUpdates', async () => {
+    it('should update verified route geometry in Zustand store and queue to pendingUpdates', async () => {
       const mockVehicle: Vehicle = {
         id: 'v123',
         license_plate: 'B 1234 BGN',
@@ -88,12 +89,14 @@ describe('VehicleService', () => {
       // Verify Zustand store is updated
       const updatedVehicle = useVehicleStore.getState().vehicles[0];
       expect(updatedVehicle.route_geometry).toEqual(newRoute);
+      expect(updatedVehicle.route_source).toBe('mapbox_driving');
       expect(updatedVehicle.route_progress).toBe(0);
 
       // Verify it was queued to pendingUpdates buffer instead of direct Supabase call
       const pendingUpdatesMap = (VehicleService as any).pendingUpdates;
       expect(pendingUpdatesMap.has('v123')).toBe(true);
       expect(pendingUpdatesMap.get('v123').route_geometry).toEqual(newRoute);
+      expect(pendingUpdatesMap.get('v123').route_source).toBe('mapbox_driving');
       expect(pendingUpdatesMap.get('v123').route_progress).toBe(0);
     });
 

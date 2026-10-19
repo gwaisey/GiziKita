@@ -15,6 +15,8 @@ export type VehicleStatus =
   | 'off_route'
   | 'offline';
 
+export type VehicleRouteSource = 'mapbox_driving' | 'legacy_unverified' | 'demo_unverified';
+
 export interface Vehicle {
   id: string;
   license_plate: string;
@@ -27,6 +29,7 @@ export interface Vehicle {
   destination_lat?: number | null;
   destination_lng?: number | null;
   route_geometry?: number[][] | null;
+  route_source?: VehicleRouteSource | null;
   route_progress?: number | null;
   bearing?: number | null;
   display_lat?: number;
@@ -112,7 +115,8 @@ export const useVehicleStore = create<VehicleState>()(
                 const updatedVehicle = { 
                   ...existingVehicle, 
                   ...newVehicle,
-                  route_geometry: newVehicle.route_geometry || existingVehicle.route_geometry 
+                  route_geometry: newVehicle.route_geometry || existingVehicle.route_geometry,
+                  route_source: newVehicle.route_source || existingVehicle.route_source,
                 };
 
                 // Trigger alerts for critical status changes
