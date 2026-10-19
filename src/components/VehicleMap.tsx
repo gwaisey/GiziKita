@@ -65,6 +65,36 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
   });
   const sppgUnits: any[] = infrastructureQuery.data?.sppgUnits ?? [];
   const schools: any[] = infrastructureQuery.data?.schools ?? [];
+  const hasCurrentRoadRoute = useCallback((vehicle: Vehicle) => {
+    const route = vehicle.route_geometry;
+    if (vehicle.route_source !== 'mapbox_driving' || !route || route.length < 2) return false;
+    const endpoint = route[route.length - 1];
+    if (vehicle.destination_lng == null || vehicle.destination_lat == null) return false;
+    // Directions geometry ends at its snapped waypoint. If stored school coords
+    // disagree, the route would visually continue after the vehicle stops.
+    return Math.abs(endpoint[0] - vehicle.destination_lng) < 0.001
+      && Math.abs(endpoint[1] - vehicle.destination_lat) < 0.001;
+  }, []);
+
+  const applyVerifiedRoute = useCallback(async (vehicle: Vehicle) => {
+    if (vehicle.last_lng == null || vehicle.last_lat == null || vehicle.destination_lng == null || vehicle.destination_lat == null) return false;
+    const route = await VehicleService.fetchMapboxRoute(
+      [vehicle.last_lng, vehicle.last_lat],
+      [vehicle.destination_lng, vehicle.destination_lat],
+      vehicle.id
+    );
+    if (!route) return false;
+    await VehicleService.updateVehicleRoute(vehicle.id, route);
+    const [destinationLng, destinationLat] = route.coordinates[route.coordinates.length - 1];
+    queryClient.setQueryData(queryKeys.infrastructure, (current: any) => current && ({
+      ...current,
+      schools: current.schools.map((school: any) => school.name === vehicle.destination_school_name
+        ? { ...school, lng: destinationLng, lat: destinationLat }
+        : school),
+    }));
+    void queryClient.invalidateQueries({ queryKey: queryKeys.infrastructure });
+    return true;
+  }, [queryClient]);
 
   useEffect(() => {
     if (mapStatus !== 'ready' || !infrastructureQuery.data) return;
@@ -128,11 +158,12 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
       });
     }
   }, [selectedCity]);
-  
+
   const sppgGeoJSON = useMemo<FeatureCollection>(() => ({
     type: 'FeatureCollection',
     features: sppgUnits
       .filter(s => selectedCity === 'Semua' || s.province === selectedCity)
+      .filter(s => Number.isFinite(s.lng) && Number.isFinite(s.lat))
       .filter(s => !offshoreMarkerIds.has(`sppg:${s.id ?? s.name}`))
       .map(s => ({
         type: 'Feature',
@@ -144,6 +175,7 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
   const schoolsGeoJSON = useMemo<FeatureCollection>(() => ({
     type: 'FeatureCollection',
     features: schools
+      .filter(s => Number.isFinite(s.lng) && Number.isFinite(s.lat))
       .filter(s => !offshoreMarkerIds.has(`school:${s.id ?? s.name}`))
       .map(s => ({
       type: 'Feature',
@@ -156,6 +188,10 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
   const filteredVehicles = useMemo(() => {
     return vehicles.filter(v => selectedCity === 'Semua' || v.city === selectedCity);
   }, [vehicles, selectedCity]);
+  const activeVehicleId = popupInfo?.id || selectedVehicle?.id;
+  const activeVehicle = activeVehicleId
+    ? vehicles.find(vehicle => vehicle.id === activeVehicleId) || popupInfo || selectedVehicle || null
+    : null;
 
 
   
@@ -180,7 +216,9 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
     const t = 0.08; 
 
     // Filter silently from the ref
-    const targetFleet = fleetRef.current.filter(v => selectedCity === 'Semua' || v.city === selectedCity);
+    const targetFleet = fleetRef.current.filter(v =>
+      v.route_source === 'mapbox_driving' && (selectedCity === 'Semua' || v.city === selectedCity)
+    );
     
     if (targetFleet.length === 0) {
       // Immediate visual clear if fleet is empty
@@ -312,40 +350,29 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
   // --- DYNAMIC ROUTE FETCH: Load real road paths for the active city ---
   useEffect(() => {
     let isMounted = true;
-    if (selectedCity === 'Semua' || vehicles.length === 0) return;
+    if (vehicles.length === 0) return;
 
     const fetchCityRoutes = async () => {
-      const cityVehicles = vehicles.filter(v => v.city === selectedCity).slice(0, 10);
+      const cityVehicles = vehicles
+        .filter(v => selectedCity === 'Semua' || v.city === selectedCity)
+        .filter(v => !hasCurrentRoadRoute(v))
+        .slice(0, 10);
       for (const v of cityVehicles) {
         if (!isMounted) break;
-        if (
-          v.route_source !== 'mapbox_driving' &&
-          v.last_lng &&
-          v.last_lat &&
-          v.destination_lng &&
-          v.destination_lat
-        ) {
-          try {
-            const realRoute = await VehicleService.fetchMapboxRoute(
-              [v.last_lng, v.last_lat],
-              [v.destination_lng, v.destination_lat],
-              v.id
-            );
-            if (!isMounted) break;
-            if (realRoute) {
-              await VehicleService.updateVehicleRoute(v.id, realRoute);
-              await new Promise(r => setTimeout(r, 200)); // Throttling delay
-            }
-          } catch (err) {
-            console.error(`Failed to fetch real route for vehicle ${v.license_plate}:`, err);
+        try {
+          if (!isMounted) break;
+          if (await applyVerifiedRoute(v)) {
+            await new Promise(r => setTimeout(r, 200)); // Throttling delay
           }
+        } catch (err) {
+          console.error(`Failed to fetch real route for vehicle ${v.license_plate}:`, err);
         }
       }
     };
 
     fetchCityRoutes();
     return () => { isMounted = false; };
-  }, [selectedCity, vehicles.length]);
+  }, [selectedCity, vehicles, hasCurrentRoadRoute, applyVerifiedRoute]);
 
 
   // --- Selection Sync: Mirror prop to local state ---
@@ -510,22 +537,9 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
     fitSelectedVehicle(vehicle);
 
     // Only show a vehicle's path after obtaining a road-verified route.
-    if (
-      vehicle.route_source !== 'mapbox_driving' &&
-      vehicle.last_lng &&
-      vehicle.last_lat &&
-      vehicle.destination_lng &&
-      vehicle.destination_lat
-    ) {
+    if (!hasCurrentRoadRoute(vehicle)) {
       try {
-        const realRoute = await VehicleService.fetchMapboxRoute(
-          [vehicle.last_lng, vehicle.last_lat],
-          [vehicle.destination_lng, vehicle.destination_lat],
-          vehicle.id
-        );
-        if (realRoute) {
-          await VehicleService.updateVehicleRoute(vehicle.id, realRoute);
-        }
+        await applyVerifiedRoute(vehicle);
       } catch (err) {
         console.error('Failed to update vehicle route on click:', err);
       }
@@ -553,18 +567,6 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
     const coordinates: [number, number][] = [[vehicle.last_lng, vehicle.last_lat]];
     if (route.length > 0) {
       coordinates.push(...route.map(coord => [coord[0], coord[1]] as [number, number]));
-    }
-
-    if (
-      vehicle.destination_lng !== null &&
-      vehicle.destination_lng !== undefined &&
-      vehicle.destination_lat !== null &&
-      vehicle.destination_lat !== undefined
-    ) {
-      const last = coordinates[coordinates.length - 1];
-      if (!last || Math.abs(last[0] - vehicle.destination_lng) > 0.000001 || Math.abs(last[1] - vehicle.destination_lat) > 0.000001) {
-        coordinates.push([vehicle.destination_lng, vehicle.destination_lat]);
-      }
     }
 
     if (coordinates.length < 2) return null;
@@ -816,13 +818,12 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
             </Source>
           )}
 
-          {(popupInfo || selectedVehicle)?.destination_lng !== null &&
-            (popupInfo || selectedVehicle)?.destination_lng !== undefined &&
-            (popupInfo || selectedVehicle)?.destination_lat !== null &&
-            (popupInfo || selectedVehicle)?.destination_lat !== undefined && (
+          {activeVehicle?.route_source === 'mapbox_driving' &&
+            activeVehicle.destination_lng != null &&
+            activeVehicle.destination_lat != null && (
             <Marker
-              longitude={(popupInfo || selectedVehicle)?.destination_lng as number}
-              latitude={(popupInfo || selectedVehicle)?.destination_lat as number}
+              longitude={activeVehicle.destination_lng}
+              latitude={activeVehicle.destination_lat}
               anchor="center"
             >
               <div className="school-marker">
@@ -874,14 +875,11 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
         </div>
 
         {(() => {
-          const activeId = popupInfo?.id || selectedVehicle?.id;
-          const displayVehicle = activeId ? vehicles.find(v => v.id === activeId) || popupInfo || selectedVehicle : null;
-          
-          if (!displayVehicle) return null;
+          if (!activeVehicle) return null;
           
           return (
             <SelectedVehiclePanel
-              vehicle={displayVehicle as Vehicle}
+              vehicle={activeVehicle}
               onClose={() => {
                 setPopupInfo(null);
                 onVehicleSelect?.(null);

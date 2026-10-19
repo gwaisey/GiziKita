@@ -17,6 +17,12 @@ export type VehicleStatus =
 
 export type VehicleRouteSource = 'mapbox_driving' | 'legacy_unverified' | 'demo_unverified';
 
+export interface VerifiedDrivingRoute {
+  coordinates: number[][];
+  snappedStart: [number, number];
+  snappedDestination: [number, number];
+}
+
 export interface Vehicle {
   id: string;
   license_plate: string;

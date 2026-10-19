@@ -1,5 +1,5 @@
 import { supabase } from '@/js/core/SupabaseClient';
-import { useVehicleStore, Vehicle, VehicleStatus } from '@/js/store/vehicleStore';
+import { useVehicleStore, Vehicle, VehicleStatus, VerifiedDrivingRoute } from '@/js/store/vehicleStore';
 
 // Status metadata: labels, colours, descriptions
 export const VEHICLE_STATUS_META: Record<VehicleStatus, { label: string; color: string; description: string }> = {
@@ -119,7 +119,7 @@ class VehicleService {
   public fetchingRoutes = new Set<string>();
 
   /** Fetch real driving route from Mapbox Directions API */
-  async fetchMapboxRoute(start: [number, number], end: [number, number], vehicleId?: string): Promise<number[][] | null> {
+  async fetchMapboxRoute(start: [number, number], end: [number, number], vehicleId?: string): Promise<VerifiedDrivingRoute | null> {
     if (vehicleId) {
       if (this.fetchingRoutes.has(vehicleId)) return null;
       this.fetchingRoutes.add(vehicleId);
@@ -137,10 +137,16 @@ class VehicleService {
       if (!res.ok) throw new Error(`Mapbox API responded with status ${res.status}`);
       const json = await res.json();
       const coords = json.routes?.[0]?.geometry?.coordinates;
+      const snappedStart = json.waypoints?.[0]?.location;
+      const snappedDestination = json.waypoints?.[1]?.location;
       if (!Array.isArray(coords) || coords.length < 2 || coords.some((point: unknown) =>
         !Array.isArray(point) || point.length < 2 || !Number.isFinite(point[0]) || !Number.isFinite(point[1])
-      )) return null;
-      return coords as number[][];
+      ) || !Array.isArray(snappedStart) || !Array.isArray(snappedDestination)) return null;
+      return {
+        coordinates: coords as number[][],
+        snappedStart: snappedStart as [number, number],
+        snappedDestination: snappedDestination as [number, number],
+      };
     } catch (err) {
       console.error('[MAPBOX ROUTE FETCH ERROR]', err);
       return null;
@@ -158,12 +164,26 @@ class VehicleService {
   }
 
   /** Update route geometry for a vehicle in store and Supabase database */
-  async updateVehicleRoute(vehicleId: string, routeGeometry: number[][]) {
+  async updateVehicleRoute(vehicleId: string, route: VerifiedDrivingRoute) {
+    // The directions geometry is our single source of truth.  Mapbox waypoint
+    // snapping is useful metadata, but using a different coordinate for the
+    // marker than the line endpoint creates a visible "last mile" over water.
+    const [snappedStartLng, snappedStartLat] = route.coordinates[0] as [number, number];
+    const [snappedDestinationLng, snappedDestinationLat] = route.coordinates[route.coordinates.length - 1] as [number, number];
     // 1. Update Zustand store
     useVehicleStore.setState(state => {
       const newVehicles = state.vehicles.map(v => {
         if (v.id === vehicleId) {
-          return { ...v, route_geometry: routeGeometry, route_source: 'mapbox_driving' as const, route_progress: 0 };
+          return {
+            ...v,
+            last_lng: snappedStartLng,
+            last_lat: snappedStartLat,
+            destination_lng: snappedDestinationLng,
+            destination_lat: snappedDestinationLat,
+            route_geometry: route.coordinates,
+            route_source: 'mapbox_driving' as const,
+            route_progress: 0,
+          };
         }
         return v;
       });
@@ -175,11 +195,23 @@ class VehicleService {
     this.queueUpdate(vehicleId, {
       id: vehicleId,
       license_plate: vehicle?.license_plate,
-      route_geometry: routeGeometry,
+      last_lng: snappedStartLng,
+      last_lat: snappedStartLat,
+      destination_lng: snappedDestinationLng,
+      destination_lat: snappedDestinationLat,
+      route_geometry: route.coordinates,
       route_source: 'mapbox_driving',
       route_progress: 0,
       updated_at: new Date().toISOString()
     });
+
+    if (vehicle?.destination_school_name) {
+      const { error } = await supabase
+        .from('schools')
+        .update({ lng: snappedDestinationLng, lat: snappedDestinationLat })
+        .eq('name', vehicle.destination_school_name);
+      if (error) console.warn('Could not save road-snapped school location:', error.message);
+    }
     
     // Ensure background sync is running to flush this update
     this.startBackgroundSync();
@@ -229,15 +261,20 @@ class VehicleService {
           cityStations.push(station);
           sppgToSeed.set(`${station.name}-${region.province}-${i}`, station);
 
-          // 1 Vehicle per Hub for guaranteed >1 vehicles per region
-          // Use the verified regional land centroid. Randomly offsetting this
-          // point can put generated schools/hubs offshore on small islands.
-          const schoolPos = { lng: station.lng, lat: station.lat };
+          // Demo school coordinates are not published until Mapbox successfully
+          // snaps a driving route endpoint to a road. A region centroid or a
+          // random offset is not proof that a point lies on land.
+          const destinationRadius = 0.025 + Math.random() * 0.015;
+          const destinationAngle = Math.random() * Math.PI * 2;
+          const destination = {
+            lng: station.lng + Math.cos(destinationAngle) * destinationRadius,
+            lat: station.lat + Math.sin(destinationAngle) * destinationRadius,
+          };
 
           const school = {
             name: `Sekolah Bina Gizi ${region.name} #${i + 1}`,
-            lat: schoolPos.lat,
-            lng: schoolPos.lng,
+            lat: null,
+            lng: null,
             city: region.name,
             province: region.province,
             pupils: 300,
@@ -263,13 +300,14 @@ class VehicleService {
           tempVehicles.push({
             license_plate: plate,
             driver_name: generateDriverName(),
-            status: 'en_route' as VehicleStatus,
+            // Do not claim a trip has started until a road-verified route exists.
+            status: 'idle' as VehicleStatus,
             city: region.name, // Fixed: Use Regency name for accurate sidebar labeling
             last_lat: station.lat,
             last_lng: station.lng,
             destination_school_name: school.name,
-            destination_lat: school.lat,
-            destination_lng: school.lng
+            destination_lat: destination.lat,
+            destination_lng: destination.lng
           });
       }
     }
@@ -394,7 +432,7 @@ class VehicleService {
 
   public startSimulation() {
     if (this.simulationInterval) return;
-    if (useVehicleStore.getState().vehicles.length === 0) return;
+    if (!useVehicleStore.getState().vehicles.some(vehicle => vehicle.route_source === 'mapbox_driving')) return;
     console.log('[SIMULATION] Starting real-time tracking engine...');
     this.simulationInterval = setInterval(() => this.simulateStep(), 1000);
     this.startBackgroundSync();
@@ -495,7 +533,7 @@ class VehicleService {
           const distanceToSchool = v.destination_lat == null || v.destination_lng == null
             ? Number.POSITIVE_INFINITY
             : distanceKm(v.last_lat ?? 0, v.last_lng ?? 0, v.destination_lat, v.destination_lng);
-          if (distanceToSchool > 0.2) newStatus = 'en_route';
+          if (distanceToSchool > 0.02) newStatus = 'en_route';
         }
 
         // Auto-start journey if idle/loading
@@ -520,7 +558,7 @@ class VehicleService {
                 : distanceKm(currentPosition.lat, currentPosition.lng, destinationLat, destinationLng);
               // Arrival must be based on physical proximity, not merely the
               // final index in a stale/incorrect route polyline.
-              newStatus = distanceToDestination <= 0.2 ? 'unloading' : 'en_route';
+              newStatus = distanceToDestination <= 0.02 ? 'unloading' : 'en_route';
               break;
             }
             

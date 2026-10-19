@@ -32,7 +32,8 @@ describe('VehicleService', () => {
             geometry: {
               coordinates: mockCoords
             }
-          }]
+          }],
+          waypoints: [{ location: [106.801, -6.201] }, { location: [106.899, -6.299] }]
         })
       };
       
@@ -45,7 +46,11 @@ describe('VehicleService', () => {
       expect(urlCall).toContain('api.mapbox.com/directions');
       expect(urlCall).toContain('mock-token');
       expect(urlCall).toContain('exclude=ferry');
-      expect(route).toEqual(mockCoords);
+      expect(route).toEqual({
+        coordinates: mockCoords,
+        snappedStart: [106.801, -6.201],
+        snappedDestination: [106.899, -6.299],
+      });
     });
 
     it('should return null and log error if fetch fails', async () => {
@@ -84,7 +89,11 @@ describe('VehicleService', () => {
       useVehicleStore.setState({ vehicles: [mockVehicle] });
       
       const newRoute = [[106.8, -6.2], [106.9, -6.3]];
-      await VehicleService.updateVehicleRoute('v123', newRoute);
+      await VehicleService.updateVehicleRoute('v123', {
+        coordinates: newRoute,
+        snappedStart: [106.8, -6.2],
+        snappedDestination: [106.9, -6.3],
+      });
 
       // Verify Zustand store is updated
       const updatedVehicle = useVehicleStore.getState().vehicles[0];
@@ -103,7 +112,15 @@ describe('VehicleService', () => {
     it('should merge consecutive updates in pendingUpdates instead of overwriting them', async () => {
       // 1. Queue a route update first
       const route = [[106.8, -6.2], [106.9, -6.3]];
-      await VehicleService.updateVehicleRoute('v999', route);
+      useVehicleStore.setState({ vehicles: [{
+        id: 'v999', license_plate: 'B 9999 BGN', driver_name: null, status: 'idle',
+        last_lat: -6.2, last_lng: 106.8, updated_at: new Date().toISOString(),
+      }] });
+      await VehicleService.updateVehicleRoute('v999', {
+        coordinates: route,
+        snappedStart: [106.8, -6.2],
+        snappedDestination: [106.9, -6.3],
+      });
 
       // 2. Queue a simulation step update afterwards
       const stepUpdate = {
