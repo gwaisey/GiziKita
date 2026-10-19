@@ -76,7 +76,7 @@ export const useVehicleStore = create<VehicleState>()(
           set({ 
             vehicles: fetchedVehicles,
             error: null,
-            hasDemoData: fetchedVehicles.length > 50 // Assume > 50 means demo data is active
+            hasDemoData: fetchedVehicles.length > 0
           });
           return fetchedVehicles;
         } catch (error: any) {
@@ -99,14 +99,16 @@ export const useVehicleStore = create<VehicleState>()(
           .on('postgres_changes', { event: '*', schema: 'public', table: 'vehicles' }, (payload: any) => {
             set((state) => {
               if (payload.eventType === 'DELETE') {
-                return { vehicles: state.vehicles.filter((v) => v.id !== payload.old.id) };
+                const vehicles = state.vehicles.filter((v) => v.id !== payload.old.id);
+                return { vehicles, hasDemoData: vehicles.length > 0 };
               }
 
               const newVehicle = payload.new as Vehicle;
               const idx = state.vehicles.findIndex((v) => v.id === newVehicle.id);
               
               if (payload.eventType === 'INSERT' && idx === -1) {
-                return { vehicles: [...state.vehicles, newVehicle] };
+                const vehicles = [...state.vehicles, newVehicle];
+                return { vehicles, hasDemoData: vehicles.length > 0 };
               }
               
               if (payload.eventType === 'UPDATE' && idx !== -1) {
@@ -154,11 +156,12 @@ export const useVehicleStore = create<VehicleState>()(
                 }
 
                 newVehicles[idx] = updatedVehicle;
-                return { vehicles: newVehicles };
+                return { vehicles: newVehicles, hasDemoData: newVehicles.length > 0 };
               }
 
               if (payload.eventType === 'UPDATE' && idx === -1) {
-                return { vehicles: [...state.vehicles, newVehicle] };
+                const vehicles = [...state.vehicles, newVehicle];
+                return { vehicles, hasDemoData: vehicles.length > 0 };
               }
 
               return state;

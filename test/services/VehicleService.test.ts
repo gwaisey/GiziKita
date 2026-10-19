@@ -203,5 +203,26 @@ describe('VehicleService', () => {
       expect(res.success).toBe(false);
       expect(res.message).toContain('SPPG Delete Failed');
     });
+
+    it('should reset the local fleet and active flag after a successful clear', async () => {
+      useVehicleStore.setState({ vehicles: [{
+        id: 'v-clear',
+        license_plate: 'B 1234 BGN',
+        driver_name: 'Driver',
+        status: 'idle',
+        last_lat: -6.2,
+        last_lng: 106.8,
+        updated_at: new Date().toISOString(),
+      }], hasDemoData: true });
+      const mockDelete = vi.fn().mockReturnThis();
+      const mockNeq = vi.fn().mockResolvedValue({ error: null });
+      (supabase.from as ReturnType<typeof vi.fn>).mockReturnValue({ delete: mockDelete, neq: mockNeq });
+
+      const result = await VehicleService.clearDemoData();
+
+      expect(result.success).toBe(true);
+      expect(useVehicleStore.getState().vehicles).toEqual([]);
+      expect(useVehicleStore.getState().hasDemoData).toBe(false);
+    });
   });
 });

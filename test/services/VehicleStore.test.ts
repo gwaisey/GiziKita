@@ -38,6 +38,7 @@ describe('vehicleStore', () => {
     expect(supabase.from).toHaveBeenCalledWith('vehicles');
     expect(mockSelect).toHaveBeenCalledWith('*');
     expect(useVehicleStore.getState().vehicles).toEqual(mockVehicles);
+    expect(useVehicleStore.getState().hasDemoData).toBe(true);
     expect(useVehicleStore.getState().loading).toBe(false);
   });
 

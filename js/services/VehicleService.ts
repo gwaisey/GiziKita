@@ -374,6 +374,11 @@ class VehicleService {
       
       if (vehicleError) throw vehicleError;
       if (sppgError) throw sppgError;
+
+      // The UI should reflect the confirmed empty database immediately.
+      this.stopSimulation();
+      useVehicleStore.getState().actions.invalidatePendingLoads();
+      useVehicleStore.setState({ vehicles: [], hasDemoData: false, error: null });
       return { success: true, message: 'Semua data kendaraan berhasil dihapus secara permanen.' };
     } catch (err: any) {
       const message = err?.message || 'Unknown error';
@@ -389,6 +394,7 @@ class VehicleService {
 
   public startSimulation() {
     if (this.simulationInterval) return;
+    if (useVehicleStore.getState().vehicles.length === 0) return;
     console.log('[SIMULATION] Starting real-time tracking engine...');
     this.simulationInterval = setInterval(() => this.simulateStep(), 1000);
     this.startBackgroundSync();

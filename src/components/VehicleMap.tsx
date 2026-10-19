@@ -27,7 +27,7 @@ interface VehicleMapProps {
 export default function VehicleMap({ onVehicleSelect, selectedVehicle }: VehicleMapProps) {
   const queryClient = useQueryClient();
   const mapRef = useRef<MapRef>(null);
-  const { vehicles, selectedCity, hasDemoData } = useVehicleStore();
+  const { vehicles, selectedCity } = useVehicleStore();
   const { setSelectedCity, setHasDemoData } = useVehicleStore((state) => state.actions);
   
   // --- SILENT SYNC ENGINE: Store fleet in a ref to bypass React diffing ---
@@ -47,6 +47,7 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
   const [popupInfo, setPopupInfo] = useState<Vehicle | null>(null);
   const [simulationActive, setSimulationActive] = useState(false);
   const [isSeedingDemo, setIsSeedingDemo] = useState(false);
+  const [isClearingFleet, setIsClearingFleet] = useState(false);
   const [mapStatus, setMapStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [mapError, setMapError] = useState<string>('');
   const [offshoreMarkerIds, setOffshoreMarkerIds] = useState<Set<string>>(() => new Set());
@@ -273,6 +274,10 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
   // --- ATOMIC SYNC: Explicit memory and visual reset when fleet is cleared ---
   useEffect(() => {
     if (vehicles.length === 0) {
+      if (simulationActive) {
+        VehicleService.stopSimulation();
+        setSimulationActive(false);
+      }
       const map = mapRef.current?.getMap();
       if (map && map.getSource('fleet-source')) {
         (map.getSource('fleet-source') as any).setData({ type: 'FeatureCollection', features: [] });
@@ -280,7 +285,7 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
       vehicleStatesRef.current.clear();
       setPopupInfo(null); // Fix: Atomic reset of local selection state
     }
-  }, [vehicles.length]);
+  }, [vehicles.length, simulationActive]);
 
   function fitSelectedVehicle(vehicle: Vehicle) {
     if (!mapRef.current || vehicle.last_lng === null || vehicle.last_lat === null) return;
@@ -701,6 +706,13 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
   };
 
   const toggleSimulation = () => {
+    if (simulationActive) {
+      VehicleService.stopSimulation();
+      setSimulationActive(false);
+      return;
+    }
+
+    if (vehicles.length === 0) return;
     const newState = !simulationActive;
     setSimulationActive(newState);
     if (newState) {
@@ -900,12 +912,14 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
         <div style={{ display: 'flex', gap: '12px' }}>
           <button
             onClick={toggleSimulation}
+            disabled={vehicles.length === 0 && !simulationActive || isSeedingDemo || isClearingFleet}
             style={{ 
               padding: '12px 24px', 
               fontSize: '12px', 
               borderRadius: '16px', 
               border: 'none', 
-              cursor: 'pointer', 
+              cursor: vehicles.length === 0 && !simulationActive || isSeedingDemo || isClearingFleet ? 'not-allowed' : 'pointer', 
+              opacity: vehicles.length === 0 && !simulationActive || isSeedingDemo || isClearingFleet ? 0.55 : 1,
               fontWeight: 800, 
               background: simulationActive ? 'var(--gold)' : 'var(--maroon)',
               color: simulationActive ? 'var(--text)' : 'var(--white)',
@@ -924,7 +938,7 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
           
           <button
             onClick={async () => {
-              if (hasDemoData || isSeedingDemo) return;
+              if (vehicles.length > 0 || isSeedingDemo || isClearingFleet) return;
               
               setIsSeedingDemo(true);
               vehicleStatesRef.current.clear();
@@ -952,15 +966,15 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
                 setIsSeedingDemo(false);
               }
             }}
-            disabled={hasDemoData || isSeedingDemo}
+            disabled={vehicles.length > 0 || isSeedingDemo || isClearingFleet}
             style={{ 
               padding: '12px 24px', 
               fontSize: '12px', 
               borderRadius: '16px', 
-              background: hasDemoData ? 'rgba(139, 28, 63, 0.05)' : 'transparent', 
-              color: hasDemoData ? '#1b5e20' : 'var(--maroon)',
-              border: hasDemoData ? '2px solid #1b5e20' : '2px solid var(--maroon)',
-              cursor: hasDemoData || isSeedingDemo ? 'default' : 'pointer', 
+              background: vehicles.length > 0 ? 'rgba(139, 28, 63, 0.05)' : 'transparent', 
+              color: vehicles.length > 0 ? '#1b5e20' : 'var(--maroon)',
+              border: vehicles.length > 0 ? '2px solid #1b5e20' : '2px solid var(--maroon)',
+              cursor: vehicles.length > 0 || isSeedingDemo || isClearingFleet ? 'default' : 'pointer', 
               fontWeight: 800,
               textTransform: 'uppercase',
               whiteSpace: 'nowrap',
@@ -968,12 +982,12 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
               display: 'flex',
               alignItems: 'center',
               gap: '8px',
-              opacity: hasDemoData || isSeedingDemo ? 0.8 : 1
+              opacity: vehicles.length > 0 || isSeedingDemo || isClearingFleet ? 0.8 : 1
             }}
           >
             {isSeedingDemo ? (
               <><div className="map-spinner" style={{ width: 14, height: 14 }} /> Menyiapkan armada...</>
-            ) : hasDemoData ? (
+            ) : vehicles.length > 0 ? (
               <>
                 <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#1b5e20' }} />
                 Data Nasional Aktif
@@ -990,8 +1004,11 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
         {/* Tools & Stats */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
           <button
+            disabled={isClearingFleet || isSeedingDemo}
             onClick={async () => {
-              if (window.confirm('Bersihkan armada?')) {
+              if (isClearingFleet || isSeedingDemo || !window.confirm('Bersihkan armada?')) return;
+              setIsClearingFleet(true);
+              try {
                 // 1. Stop simulation locally
                 setSimulationActive(false);
                 VehicleService.stopSimulation();
@@ -1014,12 +1031,16 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
                 const clearResult = await VehicleService.clearDemoData();
                 if (clearResult.success) {
                   setHasDemoData(false);
+                  useVehicleStore.setState({ vehicles: [], hasDemoData: false, error: null });
                   void queryClient.invalidateQueries({ queryKey: queryKeys.infrastructure });
                 } else {
                   alert(`Gagal membersihkan data: ${clearResult.message}`);
                   // Pulihkan state lokal jika pembersihan DB gagal
-                  await useVehicleStore.getState().actions.loadVehicles();
+                  const restored = await useVehicleStore.getState().actions.loadVehicles();
+                  setHasDemoData(restored.length > 0);
                 }
+              } finally {
+                setIsClearingFleet(false);
               }
             }}
             style={{ 
@@ -1029,7 +1050,7 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
               background: 'var(--cream)', 
               color: 'var(--maroon)',
               border: '1px solid rgba(139, 28, 63, 0.1)',
-              cursor: 'pointer', 
+              cursor: isClearingFleet || isSeedingDemo ? 'wait' : 'pointer', 
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
