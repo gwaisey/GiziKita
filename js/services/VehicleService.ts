@@ -106,6 +106,15 @@ function createFallbackRoute(vehicle: {
   return [p1, p2, p3, p4];
 }
 
+function distanceKm(aLat: number, aLng: number, bLat: number, bLng: number): number {
+  const radians = (degrees: number) => degrees * Math.PI / 180;
+  const dLat = radians(bLat - aLat);
+  const dLng = radians(bLng - aLng);
+  const haversine = Math.sin(dLat / 2) ** 2
+    + Math.cos(radians(aLat)) * Math.cos(radians(bLat)) * Math.sin(dLng / 2) ** 2;
+  return 6371 * 2 * Math.atan2(Math.sqrt(haversine), Math.sqrt(1 - haversine));
+}
+
 class VehicleService {
   public fetchingRoutes = new Set<string>();
 
@@ -221,16 +230,9 @@ class VehicleService {
           sppgToSeed.set(`${station.name}-${region.province}-${i}`, station);
 
           // 1 Vehicle per Hub for guaranteed >1 vehicles per region
-          // --- SPATIAL DISTRIBUTION (School is pushed 2-4km away) ---
-          // Use Search & Rotate to find a safe land spot away from the hub
-          // Coordinates are derived locally; querying rendered map features for
-          // every destination caused over a thousand unnecessary async turns.
-          const radius = 0.025 + Math.random() * 0.015;
-          const angle = Math.random() * Math.PI * 2;
-          const schoolPos = {
-            lng: station.lng + Math.cos(angle) * radius,
-            lat: station.lat + Math.sin(angle) * radius,
-          };
+          // Use the verified regional land centroid. Randomly offsetting this
+          // point can put generated schools/hubs offshore on small islands.
+          const schoolPos = { lng: station.lng, lat: station.lat };
 
           const school = {
             name: `Sekolah Bina Gizi ${region.name} #${i + 1}`,
@@ -483,6 +485,13 @@ class VehicleService {
         let newProgress = v.route_progress ?? 0;
         let newBearing = v.bearing ?? 0;
 
+        if (newStatus === 'unloading') {
+          const distanceToSchool = v.destination_lat == null || v.destination_lng == null
+            ? Number.POSITIVE_INFINITY
+            : distanceKm(v.last_lat ?? 0, v.last_lng ?? 0, v.destination_lat, v.destination_lng);
+          if (distanceToSchool > 0.2) newStatus = 'en_route';
+        }
+
         // Auto-start journey if idle/loading
         if (v.status === 'idle' || v.status === 'delayed' || v.status === 'loading') {
           newStatus = 'en_route'; 
@@ -495,9 +504,17 @@ class VehicleService {
           while (distanceToMove > 0) {
             const floorIdx = Math.floor(newProgress);
             const ceilIdx = floorIdx + 1;
+            const currentPosition = this.getPositionAtProgress(v.route_geometry, newProgress);
             
             if (ceilIdx >= v.route_geometry.length) {
-              newStatus = 'unloading';
+              const destinationLat = v.destination_lat;
+              const destinationLng = v.destination_lng;
+              const distanceToDestination = destinationLat == null || destinationLng == null
+                ? Number.POSITIVE_INFINITY
+                : distanceKm(currentPosition.lat, currentPosition.lng, destinationLat, destinationLng);
+              // Arrival must be based on physical proximity, not merely the
+              // final index in a stale/incorrect route polyline.
+              newStatus = distanceToDestination <= 0.2 ? 'unloading' : 'en_route';
               break;
             }
             

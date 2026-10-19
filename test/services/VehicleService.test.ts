@@ -126,6 +126,32 @@ describe('VehicleService', () => {
     });
   });
 
+  describe('simulateStep arrival status', () => {
+    it('does not leave a vehicle as unloading while it is far from the school', async () => {
+      const vehicle: Vehicle = {
+        id: 'arrival-check',
+        license_plate: 'DH 4006 BGN',
+        driver_name: 'Demo Driver',
+        status: 'unloading',
+        city: 'Sabu Raijua',
+        last_lat: -10.5,
+        last_lng: 121.85,
+        destination_lat: -10.5,
+        destination_lng: 121.95,
+        route_geometry: [[121.85, -10.5], [121.95, -10.5]],
+        route_source: 'mapbox_driving',
+        route_progress: 0,
+        bearing: 90,
+        updated_at: new Date().toISOString(),
+      };
+      useVehicleStore.setState({ vehicles: [vehicle] });
+
+      await VehicleService.simulateStep();
+
+      expect(useVehicleStore.getState().vehicles[0].status).toBe('en_route');
+    });
+  });
+
   describe('clearDemoData', () => {
     it('should successfully clear data when supabase deletes succeed', async () => {
       const mockDelete = vi.fn().mockReturnThis();

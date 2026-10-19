@@ -49,6 +49,7 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
   const [isSeedingDemo, setIsSeedingDemo] = useState(false);
   const [mapStatus, setMapStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [mapError, setMapError] = useState<string>('');
+  const [offshoreMarkerIds, setOffshoreMarkerIds] = useState<Set<string>>(() => new Set());
   const infrastructureQuery = useQuery({
     queryKey: queryKeys.infrastructure,
     queryFn: async () => {
@@ -63,6 +64,44 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
   });
   const sppgUnits: any[] = infrastructureQuery.data?.sppgUnits ?? [];
   const schools: any[] = infrastructureQuery.data?.schools ?? [];
+
+  useEffect(() => {
+    if (mapStatus !== 'ready' || !infrastructureQuery.data) return;
+    const map = mapRef.current?.getMap();
+    if (!map) return;
+
+    const waterLayerIds = map.getStyle().layers
+      .filter((layer: any) => layer['source-layer'] === 'water' || /(^|[-_])water([-_]|$)/i.test(layer.id))
+      .map((layer: any) => layer.id);
+    if (waterLayerIds.length === 0) return;
+
+    const candidates = [
+      ...sppgUnits.map((unit: any) => ({ id: `sppg:${unit.id ?? unit.name}`, lng: unit.lng, lat: unit.lat })),
+      ...schools.map((school: any) => ({ id: `school:${school.id ?? school.name}`, lng: school.lng, lat: school.lat })),
+    ];
+
+    const validateVisibleMarkers = () => {
+      const bounds = map.getBounds();
+      if (!bounds) return;
+      const offshore = new Set<string>();
+      for (const point of candidates) {
+        if (!Number.isFinite(point.lng) || !Number.isFinite(point.lat) || !bounds.contains([point.lng, point.lat])) continue;
+        try {
+          const screenPoint = map.project([point.lng, point.lat]);
+          if (map.queryRenderedFeatures(screenPoint, { layers: waterLayerIds }).length > 0) {
+            offshore.add(point.id);
+          }
+        } catch (error) {
+          console.warn('Could not validate map marker land position:', error);
+        }
+      }
+      setOffshoreMarkerIds(offshore);
+    };
+
+    validateVisibleMarkers();
+    map.on('moveend', validateVisibleMarkers);
+    return () => { map.off('moveend', validateVisibleMarkers); };
+  }, [mapStatus, infrastructureQuery.data, selectedCity]);
 
   // --- Auto-Navigate to Selected Region ---
   useEffect(() => {
@@ -93,21 +132,24 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
     type: 'FeatureCollection',
     features: sppgUnits
       .filter(s => selectedCity === 'Semua' || s.province === selectedCity)
+      .filter(s => !offshoreMarkerIds.has(`sppg:${s.id ?? s.name}`))
       .map(s => ({
         type: 'Feature',
         geometry: { type: 'Point', coordinates: [s.lng, s.lat] },
         properties: { name: s.name, city: s.city }
       }))
-  }), [sppgUnits, selectedCity]);
+  }), [sppgUnits, selectedCity, offshoreMarkerIds]);
 
   const schoolsGeoJSON = useMemo<FeatureCollection>(() => ({
     type: 'FeatureCollection',
-    features: schools.map(s => ({
+    features: schools
+      .filter(s => !offshoreMarkerIds.has(`school:${s.id ?? s.name}`))
+      .map(s => ({
       type: 'Feature',
       geometry: { type: 'Point', coordinates: [s.lng, s.lat] },
       properties: { name: s.name, province: s.province }
     }))
-  }), [schools]);
+  }), [schools, offshoreMarkerIds]);
 
   // Filter vehicles based on selected city for UI elements
   const filteredVehicles = useMemo(() => {
