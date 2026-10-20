@@ -9,7 +9,7 @@ import { useVehicleStore, Vehicle } from '@/js/store/vehicleStore';
 import { useQuery } from '@tanstack/react-query';
 import { INDONESIA_514_REGIONS } from '@/js/data/indonesia_regions';
 import VehicleService, { VEHICLE_STATUS_META } from '@/js/services/VehicleService';
-import { AlertTriangle, MapPin, Navigation, School, Trash2, User, X, Zap } from 'lucide-react';
+import { AlertTriangle, Compass, MapPin, Navigation, School, Trash2, User, X, Zap } from 'lucide-react';
 import { supabase } from '@/js/core/SupabaseClient';
 import { queryKeys } from '@/src/lib/queryKeys';
 
@@ -50,6 +50,7 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
   const [isClearingFleet, setIsClearingFleet] = useState(false);
   const [mapStatus, setMapStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [mapError, setMapError] = useState<string>('');
+  const [mapOrientation, setMapOrientation] = useState({ bearing: 0, pitch: 0 });
   const [offshoreMarkerIds, setOffshoreMarkerIds] = useState<Set<string>>(() => new Set());
   const infrastructureQuery = useQuery({
     queryKey: queryKeys.infrastructure,
@@ -513,6 +514,16 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
     }, 0);
   }, []);
 
+  const resetMapOrientation = useCallback(() => {
+    const map = mapRef.current?.getMap();
+    if (!map) return;
+
+    // The compass always restores a north-up, flat map after a right-click or
+    // touch rotation/tilt. It is intentionally not a "move to my location" button.
+    map.easeTo({ bearing: 0, pitch: 0, duration: 350, essential: true });
+    setMapOrientation({ bearing: 0, pitch: 0 });
+  }, []);
+
   const onMapClick = useCallback((e: any) => {
     const map = e.target;
     const features = map.queryRenderedFeatures(e.point, { layers: ['fleet-layer'] });
@@ -783,10 +794,25 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
           onLoad={onMapLoad}
           onError={onMapError}
           onClick={onMapClick}
+          onRotate={(event) => setMapOrientation((current) => ({ ...current, bearing: event.viewState.bearing }))}
+          onPitch={(event) => setMapOrientation((current) => ({ ...current, pitch: event.viewState.pitch }))}
           style={{ width: '100%', height: '100%' }}
         >
-          <NavigationControl position="top-right" />
+          <NavigationControl position="top-right" showCompass={false} />
           <FullscreenControl position="top-right" />
+
+          <button
+            type="button"
+            className={`map-orientation-control${Math.abs(mapOrientation.bearing) > 0.5 || mapOrientation.pitch > 0.5 ? ' is-rotated' : ''}`}
+            onClick={resetMapOrientation}
+            title="Kembalikan peta ke arah utara dan tampilan datar"
+            aria-label="Kembalikan peta ke arah utara dan tampilan datar"
+          >
+            <Compass
+              size={21}
+              style={{ transform: `rotate(${-mapOrientation.bearing}deg)`, transition: 'transform 160ms ease' }}
+            />
+          </button>
 
           {sppgGeoJSON && (
             <Source id="sppg-source" type="geojson" data={sppgGeoJSON}>
@@ -1103,6 +1129,29 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
           text-align: center;
           background: rgba(255, 251, 245, 0.88);
           backdrop-filter: blur(4px);
+        }
+
+        .map-orientation-control {
+          position: absolute;
+          z-index: 3;
+          top: 136px;
+          right: 10px;
+          width: 30px;
+          height: 30px;
+          display: grid;
+          place-items: center;
+          border: 0;
+          border-radius: 4px;
+          background: #fff;
+          color: #52616b;
+          box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.1), 0 1px 4px rgba(0, 0, 0, 0.18);
+          cursor: pointer;
+        }
+
+        .map-orientation-control:hover,
+        .map-orientation-control.is-rotated {
+          color: var(--maroon);
+          background: #fff8f6;
         }
 
         .map-state-overlay p {
