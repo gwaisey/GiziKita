@@ -9,7 +9,7 @@ import { useVehicleStore, Vehicle } from '@/js/store/vehicleStore';
 import { useQuery } from '@tanstack/react-query';
 import { INDONESIA_514_REGIONS } from '@/js/data/indonesia_regions';
 import VehicleService, { VEHICLE_STATUS_META } from '@/js/services/VehicleService';
-import { AlertTriangle, Compass, MapPin, Navigation, School, Trash2, User, X, Zap } from 'lucide-react';
+import { AlertTriangle, MapPin, Navigation, School, Trash2, User, X, Zap } from 'lucide-react';
 import { supabase } from '@/js/core/SupabaseClient';
 import { queryKeys } from '@/src/lib/queryKeys';
 
@@ -50,7 +50,8 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
   const [isClearingFleet, setIsClearingFleet] = useState(false);
   const [mapStatus, setMapStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [mapError, setMapError] = useState<string>('');
-  const [mapOrientation, setMapOrientation] = useState({ bearing: 0, pitch: 0 });
+  const [orientationNotice, setOrientationNotice] = useState<string | null>(null);
+  const orientationNoticeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [offshoreMarkerIds, setOffshoreMarkerIds] = useState<Set<string>>(() => new Set());
   const infrastructureQuery = useQuery({
     queryKey: queryKeys.infrastructure,
@@ -514,14 +515,45 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
     }, 0);
   }, []);
 
-  const resetMapOrientation = useCallback(() => {
+  const showOrientationNotice = useCallback((message: string) => {
+    if (orientationNoticeTimeoutRef.current) clearTimeout(orientationNoticeTimeoutRef.current);
+    setOrientationNotice(message);
+    orientationNoticeTimeoutRef.current = setTimeout(() => setOrientationNotice(null), 2200);
+  }, []);
+
+  // Keep Mapbox's original compass UI. Its native action is resetNorthPitch(),
+  // which returns a rotated/tilted map to north-up and flat. We only add clear
+  // feedback when the map was already in that state, where a reset has no visual change.
+  useEffect(() => {
+    if (mapStatus !== 'ready') return;
     const map = mapRef.current?.getMap();
     if (!map) return;
 
-    // The compass always restores a north-up, flat map after a right-click or
-    // touch rotation/tilt. It is intentionally not a "move to my location" button.
-    map.easeTo({ bearing: 0, pitch: 0, duration: 350, essential: true });
-    setMapOrientation({ bearing: 0, pitch: 0 });
+    let compassButton: HTMLButtonElement | null = null;
+    const onCompassClick = () => {
+      const alreadyNorthUp = Math.abs(map.getBearing()) < 0.01 && Math.abs(map.getPitch()) < 0.01;
+      showOrientationNotice(
+        alreadyNorthUp
+          ? 'Peta sudah menghadap utara.'
+          : 'Orientasi peta dikembalikan ke utara.'
+      );
+    };
+
+    const frame = requestAnimationFrame(() => {
+      compassButton = map.getContainer().querySelector<HTMLButtonElement>('.mapboxgl-ctrl-compass');
+      // Capture runs before Mapbox handles the click, so we can correctly tell
+      // whether the map needed a reset.
+      compassButton?.addEventListener('click', onCompassClick, true);
+    });
+
+    return () => {
+      cancelAnimationFrame(frame);
+      compassButton?.removeEventListener('click', onCompassClick, true);
+    };
+  }, [mapStatus, showOrientationNotice]);
+
+  useEffect(() => () => {
+    if (orientationNoticeTimeoutRef.current) clearTimeout(orientationNoticeTimeoutRef.current);
   }, []);
 
   const onMapClick = useCallback((e: any) => {
@@ -794,25 +826,12 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
           onLoad={onMapLoad}
           onError={onMapError}
           onClick={onMapClick}
-          onRotate={(event) => setMapOrientation((current) => ({ ...current, bearing: event.viewState.bearing }))}
-          onPitch={(event) => setMapOrientation((current) => ({ ...current, pitch: event.viewState.pitch }))}
+          dragRotate
+          touchPitch
           style={{ width: '100%', height: '100%' }}
         >
-          <NavigationControl position="top-right" showCompass={false} />
+          <NavigationControl position="top-right" />
           <FullscreenControl position="top-right" />
-
-          <button
-            type="button"
-            className={`map-orientation-control${Math.abs(mapOrientation.bearing) > 0.5 || mapOrientation.pitch > 0.5 ? ' is-rotated' : ''}`}
-            onClick={resetMapOrientation}
-            title="Kembalikan peta ke arah utara dan tampilan datar"
-            aria-label="Kembalikan peta ke arah utara dan tampilan datar"
-          >
-            <Compass
-              size={21}
-              style={{ transform: `rotate(${-mapOrientation.bearing}deg)`, transition: 'transform 160ms ease' }}
-            />
-          </button>
 
           {sppgGeoJSON && (
             <Source id="sppg-source" type="geojson" data={sppgGeoJSON}>
@@ -927,6 +946,10 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
             <h3>Peta gagal dimuat</h3>
             <p>{mapError || 'Periksa koneksi internet, token Mapbox, atau style peta.'}</p>
           </div>
+        )}
+
+        {orientationNotice && (
+          <div className="map-orientation-notice" role="status">{orientationNotice}</div>
         )}
       </div>
 
@@ -1131,27 +1154,20 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
           backdrop-filter: blur(4px);
         }
 
-        .map-orientation-control {
+        .map-orientation-notice {
           position: absolute;
-          z-index: 3;
-          top: 136px;
-          right: 10px;
-          width: 30px;
-          height: 30px;
-          display: grid;
-          place-items: center;
-          border: 0;
-          border-radius: 4px;
-          background: #fff;
-          color: #52616b;
-          box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.1), 0 1px 4px rgba(0, 0, 0, 0.18);
-          cursor: pointer;
-        }
-
-        .map-orientation-control:hover,
-        .map-orientation-control.is-rotated {
-          color: var(--maroon);
-          background: #fff8f6;
+          z-index: 6;
+          top: 16px;
+          left: 50%;
+          transform: translateX(-50%);
+          padding: 9px 14px;
+          border-radius: 999px;
+          background: rgba(44, 24, 16, 0.88);
+          color: #fff;
+          box-shadow: 0 4px 14px rgba(44, 24, 16, 0.2);
+          font-size: 12px;
+          font-weight: 700;
+          pointer-events: none;
         }
 
         .map-state-overlay p {
