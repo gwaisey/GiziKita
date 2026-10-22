@@ -445,6 +445,15 @@ class VehicleService {
       this.simulationInterval = null;
     }
     this.stopBackgroundSync();
+
+    // Reset all in-motion vehicles back to idle (Siaga) in local state.
+    // The DB will be reconciled on the next page load via loadVehicles().
+    const ACTIVE_STATUSES: VehicleStatus[] = ['en_route', 'delayed', 'unloading', 'loading'];
+    useVehicleStore.setState(state => ({
+      vehicles: state.vehicles.map(v =>
+        ACTIVE_STATUSES.includes(v.status) ? { ...v, status: 'idle' as VehicleStatus } : v
+      )
+    }));
   }
 
   private stopBackgroundSync() {

@@ -77,7 +77,15 @@ export const useVehicleStore = create<VehicleState>()(
         try {
           const { data, error } = await supabase.from('vehicles').select('*');
           if (error) throw error;
-          const fetchedVehicles: Vehicle[] = data ?? [];
+
+          // Reset any "active" statuses persisted from a previous simulation session.
+          // Simulation is never running at startup, so all moving vehicles must appear
+          // as 'idle' (Siaga) until the user explicitly starts the simulation.
+          const ACTIVE_STATUSES: VehicleStatus[] = ['en_route', 'delayed', 'unloading', 'loading'];
+          const fetchedVehicles: Vehicle[] = (data ?? []).map((v: Vehicle) =>
+            ACTIVE_STATUSES.includes(v.status) ? { ...v, status: 'idle' as VehicleStatus } : v
+          );
+
           if (requestGeneration !== vehicleLoadGeneration) return get().vehicles;
           set({ 
             vehicles: fetchedVehicles,
