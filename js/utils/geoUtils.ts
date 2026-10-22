@@ -76,9 +76,9 @@ export async function findSafeDistributedPoint(
   radiusDegrees: number,
   initialAngle = 0
 ): Promise<{lng: number, lat: number}> {
-  // Try 8 different angles (every 45 degrees)
-  for (let i = 0; i < 8; i++) {
-    const angle = (initialAngle + i * 45) * (Math.PI / 180);
+  // Try 16 different angles (every 22.5 degrees) for better coverage
+  for (let i = 0; i < 16; i++) {
+    const angle = (initialAngle + i * 22.5) * (Math.PI / 180);
     const candidateLng = centerLng + Math.cos(angle) * radiusDegrees;
     const candidateLat = centerLat + Math.sin(angle) * radiusDegrees;
     
@@ -88,11 +88,11 @@ export async function findSafeDistributedPoint(
         return { lng: candidateLng, lat: candidateLat };
       }
     } else {
-      // Fallback if no map is provided (trust the hardcoded anchor logic)
-      return { lng: candidateLng, lat: candidateLat };
+      // No map provided — always fallback to center to avoid sea placement
+      return { lng: centerLng, lat: centerLat };
     }
   }
   
-  // Final fallback: the center itself
+  // Final fallback: the center itself (guaranteed land from hardcoded coords)
   return { lng: centerLng, lat: centerLat };
 }
