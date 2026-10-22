@@ -21,12 +21,13 @@ export interface MenuAnalysisResult {
 class AIService {
   private CACHE_KEY = 'gizikita_ai_cache';
   private CACHE_TTL_MS = 24 * 60 * 60 * 1000;
-  private AI_REQUEST_TIMEOUT_MS = 15_000;
+  private AI_REQUEST_TIMEOUT_MS = 25_000;
   private MENU_CACHE_VERSION = 'menu-analysis-v2';
   private HELP_HISTORY_KEY = 'gizikita_help_history';
   
   private cache: Record<string, AICacheEntry> = {};
   private inFlightRequests = new Map<string, Promise<string>>();
+  private listeners = new Set<() => void>();
   
   public helpHistory: ChatMessage[] = [];
   public isHelpLoading: boolean = false;
@@ -34,10 +35,44 @@ class AIService {
   public onHelpUpdate: (() => void) | null = null;
 
   constructor() {
+    this.init();
+  }
+
+  public init() {
     if (typeof window !== 'undefined') {
       this.cache = this._loadCache();
       this._loadHelpHistory();
     }
+  }
+
+  public subscribe(listener: () => void) {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
+  }
+
+  public notify() {
+    if (this.onHelpUpdate) {
+      try {
+        this.onHelpUpdate();
+      } catch (e) {
+        console.warn('onHelpUpdate error:', e);
+      }
+    }
+    this.listeners.forEach((fn) => {
+      try {
+        fn();
+      } catch (e) {
+        console.warn('Subscriber listener error:', e);
+      }
+    });
+  }
+
+  public resetLoadingState() {
+    this.isHelpLoading = false;
+    this.helpLoadingStatus = "";
+    this.notify();
   }
 
   private _loadCache(): Record<string, AICacheEntry> {
@@ -95,7 +130,7 @@ class AIService {
     if (typeof window !== 'undefined') {
       localStorage.removeItem(this.HELP_HISTORY_KEY);
     }
-    if (this.onHelpUpdate) this.onHelpUpdate();
+    this.notify();
   }
 
   private _loadHelpHistory() {
@@ -118,6 +153,13 @@ class AIService {
   private async _callAIProxy(action: string, payload: any): Promise<string> {
     let timeoutId: ReturnType<typeof setTimeout> | undefined;
     try {
+      // Ensure auth session is not stale before making edge function call
+      if (typeof window !== 'undefined') {
+        try {
+          await supabase.auth.getSession();
+        } catch (_) {}
+      }
+
       const request = Promise.resolve().then(() =>
         supabase.functions.invoke('ai-gateway', { body: { action, payload } })
       );
@@ -210,7 +252,8 @@ class AIService {
     this.helpHistory.push({ role: "user", content: sanitizedMsg });
     this._saveHelpHistory();
     this.isHelpLoading = true;
-    if (this.onHelpUpdate) this.onHelpUpdate();
+    this.helpLoadingStatus = "GiziBot sedang berpikir...";
+    this.notify();
 
     try {
       const groundingNote = this.buildGroundingNote(sanitizedMsg);
@@ -236,9 +279,11 @@ class AIService {
       this._saveHelpHistory();
     } catch (e: any) {
       this.helpHistory.push({ role: "assistant", content: this._getFriendlyErrorMessage(e) });
+      this._saveHelpHistory();
     } finally {
       this.isHelpLoading = false;
-      if (this.onHelpUpdate) this.onHelpUpdate();
+      this.helpLoadingStatus = "";
+      this.notify();
     }
   }
 
@@ -284,7 +329,11 @@ class AIService {
         query = query.ilike('city', '%surabaya%');
       }
 
-      const { data, error } = await query;
+      // Add 4-second timeout to grounding query so slow network doesn't freeze the AI request
+      const timeout = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('GROUNDING_TIMEOUT')), 4000)
+      );
+      const { data, error } = await Promise.race([query, timeout]);
       if (error || !data || data.length === 0) {
         return 'Tidak ada data sekolah yang cocok di aplikasi GiziKita untuk pertanyaan ini.';
       }

@@ -14,19 +14,24 @@ export default function HelpPage() {
 
   // Sync with AIService
   useEffect(() => {
-    // Initialize from AIService on client only to avoid hydration mismatch
+    // Ensure cache & chat history are initialized on client
+    AIService.init();
+
+    // Reset stale loading state if arriving from interrupted session
+    AIService.resetLoadingState();
+
     setChatHistory([...AIService.helpHistory]);
     setIsLoading(AIService.isHelpLoading);
     setLoadingStatus(AIService.helpLoadingStatus);
 
-    AIService.onHelpUpdate = () => {
+    const unsubscribe = AIService.subscribe(() => {
       setChatHistory([...AIService.helpHistory]);
       setIsLoading(AIService.isHelpLoading);
       setLoadingStatus(AIService.helpLoadingStatus);
-    };
+    });
 
     return () => {
-      AIService.onHelpUpdate = null;
+      unsubscribe();
     };
   }, []);
 
