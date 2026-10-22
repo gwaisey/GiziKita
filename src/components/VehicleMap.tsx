@@ -50,8 +50,6 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
   const [isClearingFleet, setIsClearingFleet] = useState(false);
   const [mapStatus, setMapStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [mapError, setMapError] = useState<string>('');
-  const [orientationNotice, setOrientationNotice] = useState<string | null>(null);
-  const orientationNoticeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [offshoreMarkerIds, setOffshoreMarkerIds] = useState<Set<string>>(() => new Set());
   const infrastructureQuery = useQuery({
     queryKey: queryKeys.infrastructure,
@@ -515,47 +513,6 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
     }, 0);
   }, []);
 
-  const showOrientationNotice = useCallback((message: string) => {
-    if (orientationNoticeTimeoutRef.current) clearTimeout(orientationNoticeTimeoutRef.current);
-    setOrientationNotice(message);
-    orientationNoticeTimeoutRef.current = setTimeout(() => setOrientationNotice(null), 2200);
-  }, []);
-
-  // Keep Mapbox's original compass UI. Its native action is resetNorthPitch(),
-  // which returns a rotated/tilted map to north-up and flat. We only add clear
-  // feedback when the map was already in that state, where a reset has no visual change.
-  useEffect(() => {
-    if (mapStatus !== 'ready') return;
-    const map = mapRef.current?.getMap();
-    if (!map) return;
-
-    let compassButton: HTMLButtonElement | null = null;
-    const onCompassClick = () => {
-      const alreadyNorthUp = Math.abs(map.getBearing()) < 0.01 && Math.abs(map.getPitch()) < 0.01;
-      showOrientationNotice(
-        alreadyNorthUp
-          ? 'Peta sudah menghadap utara.'
-          : 'Orientasi peta dikembalikan ke utara.'
-      );
-    };
-
-    const frame = requestAnimationFrame(() => {
-      compassButton = map.getContainer().querySelector<HTMLButtonElement>('.mapboxgl-ctrl-compass');
-      // Capture runs before Mapbox handles the click, so we can correctly tell
-      // whether the map needed a reset.
-      compassButton?.addEventListener('click', onCompassClick, true);
-    });
-
-    return () => {
-      cancelAnimationFrame(frame);
-      compassButton?.removeEventListener('click', onCompassClick, true);
-    };
-  }, [mapStatus, showOrientationNotice]);
-
-  useEffect(() => () => {
-    if (orientationNoticeTimeoutRef.current) clearTimeout(orientationNoticeTimeoutRef.current);
-  }, []);
-
   const onMapClick = useCallback((e: any) => {
     const map = e.target;
     const features = map.queryRenderedFeatures(e.point, { layers: ['fleet-layer'] });
@@ -826,11 +783,11 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
           onLoad={onMapLoad}
           onError={onMapError}
           onClick={onMapClick}
-          dragRotate
-          touchPitch
+          dragRotate={false}
+          touchPitch={false}
           style={{ width: '100%', height: '100%' }}
         >
-          <NavigationControl position="top-right" />
+          <NavigationControl position="top-right" showCompass={false} />
           <FullscreenControl position="top-right" />
 
           {sppgGeoJSON && (
@@ -948,9 +905,6 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
           </div>
         )}
 
-        {orientationNotice && (
-          <div className="map-orientation-notice" role="status">{orientationNotice}</div>
-        )}
       </div>
 
       {/* Map controls are outside the canvas area so they never cover loading/error states. */}
@@ -1152,22 +1106,6 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
           text-align: center;
           background: rgba(255, 251, 245, 0.88);
           backdrop-filter: blur(4px);
-        }
-
-        .map-orientation-notice {
-          position: absolute;
-          z-index: 6;
-          top: 16px;
-          left: 50%;
-          transform: translateX(-50%);
-          padding: 9px 14px;
-          border-radius: 999px;
-          background: rgba(44, 24, 16, 0.88);
-          color: #fff;
-          box-shadow: 0 4px 14px rgba(44, 24, 16, 0.2);
-          font-size: 12px;
-          font-weight: 700;
-          pointer-events: none;
         }
 
         .map-state-overlay p {
