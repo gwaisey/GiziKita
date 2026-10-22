@@ -264,7 +264,7 @@ class VehicleService {
           // Demo school coordinates are not published until Mapbox successfully
           // snaps a driving route endpoint to a road. A region centroid or a
           // random offset is not proof that a point lies on land.
-          const destinationRadius = 0.025 + Math.random() * 0.015;
+          const destinationRadius = 0.010 + Math.random() * 0.017;
           const destinationAngle = Math.random() * Math.PI * 2;
           const destination = {
             lng: station.lng + Math.cos(destinationAngle) * destinationRadius,
