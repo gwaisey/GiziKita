@@ -1,5 +1,6 @@
 import { supabase } from '@/js/core/SupabaseClient';
 import { useVehicleStore, Vehicle, VehicleStatus, VerifiedDrivingRoute } from '@/js/store/vehicleStore';
+import { resolveSppgLocation } from '@/js/data/indonesia_regions';
 
 // Status metadata: labels, colours, descriptions
 export const VEHICLE_STATUS_META: Record<VehicleStatus, { label: string; color: string; description: string }> = {
@@ -171,14 +172,20 @@ class VehicleService {
     // marker than the line endpoint creates a visible "last mile" over water.
     const [snappedStartLng, snappedStartLat] = route.coordinates[0] as [number, number];
     const [snappedDestinationLng, snappedDestinationLat] = route.coordinates[route.coordinates.length - 1] as [number, number];
+    const vehicle = useVehicleStore.getState().vehicles.find(v => v.id === vehicleId);
+    const sppgLoc = resolveSppgLocation(vehicle?.city);
+    // When simulation has not started (vehicle is idle), last position remains EXACTLY at SPPG coordinates!
+    const activeLng = (vehicle?.status === 'idle' && sppgLoc) ? sppgLoc.lng : snappedStartLng;
+    const activeLat = (vehicle?.status === 'idle' && sppgLoc) ? sppgLoc.lat : snappedStartLat;
+
     // 1. Update Zustand store
     useVehicleStore.setState(state => {
       const newVehicles = state.vehicles.map(v => {
         if (v.id === vehicleId) {
           return {
             ...v,
-            last_lng: snappedStartLng,
-            last_lat: snappedStartLat,
+            last_lng: activeLng,
+            last_lat: activeLat,
             destination_lng: snappedDestinationLng,
             destination_lat: snappedDestinationLat,
             route_geometry: route.coordinates,
@@ -192,12 +199,11 @@ class VehicleService {
     });
     
     // 2. Sync to Supabase via batch buffer to prevent connection exhaustion
-    const vehicle = useVehicleStore.getState().vehicles.find(v => v.id === vehicleId);
     this.queueUpdate(vehicleId, {
       id: vehicleId,
       license_plate: vehicle?.license_plate,
-      last_lng: snappedStartLng,
-      last_lat: snappedStartLat,
+      last_lng: activeLng,
+      last_lat: activeLat,
       destination_lng: snappedDestinationLng,
       destination_lat: snappedDestinationLat,
       route_geometry: route.coordinates,
@@ -457,18 +463,12 @@ class VehicleService {
             const sppgLng = sppgLoc?.lng ?? v.last_lng;
             const sppgLat = sppgLoc?.lat ?? v.last_lat;
 
-            const hasValidStart = v.route_geometry && v.route_geometry.length > 0
-              && (sppgLng == null || sppgLat == null || Math.hypot(v.route_geometry[0][0] - sppgLng, v.route_geometry[0][1] - sppgLat) < 0.005);
-
-            const resolvedLng = hasValidStart ? v.route_geometry![0][0] : sppgLng;
-            const resolvedLat = hasValidStart ? v.route_geometry![0][1] : sppgLat;
-
             return {
               ...v,
               status: 'idle' as VehicleStatus,
               route_progress: 0,
-              last_lng: resolvedLng,
-              last_lat: resolvedLat,
+              last_lng: sppgLng,
+              last_lat: sppgLat,
             };
           }
           return v;

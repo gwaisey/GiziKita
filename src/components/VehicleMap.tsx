@@ -7,7 +7,7 @@ import 'mapbox-gl/dist/mapbox-gl.css';
 import type { FeatureCollection, LineString } from 'geojson';
 import { useVehicleStore, Vehicle } from '@/js/store/vehicleStore';
 import { useQuery } from '@tanstack/react-query';
-import { INDONESIA_514_REGIONS, resolveSppgLocation, normalizeRegionName } from '@/js/data/indonesia_regions';
+import { INDONESIA_514_REGIONS, resolveSppgLocation } from '@/js/data/indonesia_regions';
 import VehicleService, { VEHICLE_STATUS_META } from '@/js/services/VehicleService';
 import { AlertTriangle, MapPin, Navigation, School, Trash2, User, X, Zap } from 'lucide-react';
 import { supabase } from '@/js/core/SupabaseClient';
@@ -312,41 +312,20 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
       let targetLat = v.last_lat ?? s.lat;
       let targetLng = v.last_lng ?? s.lng;
 
-      // Vehicles in 'idle' (Siaga) must ALWAYS be stationed at their SPPG Hub without exception
+      // Vehicles in 'idle' (Siaga) must ALWAYS be stationed EXACTLY at their SPPG Hub coordinates when simulation has not started
       if (v.status === 'idle') {
         const sppg = resolveSppgLocation(v.city, sppgUnits);
         if (sppg) {
-          // Check if vehicle has a verified route starting at this SPPG
-          const hasValidNearOrigin = v.route_geometry && v.route_geometry.length > 0
-            && Math.hypot(v.route_geometry[0][0] - sppg.lng, v.route_geometry[0][1] - sppg.lat) < 0.005;
-
-          const baseOriginLng = hasValidNearOrigin ? v.route_geometry![0][0] : sppg.lng;
-          const baseOriginLat = hasValidNearOrigin ? v.route_geometry![0][1] : sppg.lat;
-
-          // Realistic parking bay offset so multiple idle vehicles don't overlap on 1 pixel
-          const normCity = normalizeRegionName(v.city);
-          const cityIdleVehicles = targetFleet.filter(item => normalizeRegionName(item.city) === normCity && item.status === 'idle');
-          const vehicleIdx = cityIdleVehicles.findIndex(item => item.id === v.id);
-          const totalInHub = Math.max(cityIdleVehicles.length, 1);
-
-          if (totalInHub > 1 && vehicleIdx >= 0) {
-            // Position parked vehicles around the SPPG compound (~20 meters)
-            const angle = (vehicleIdx * (2 * Math.PI / totalInHub)) + Math.PI / 4;
-            const parkingRadius = 0.00018;
-            targetLng = baseOriginLng + Math.cos(angle) * parkingRadius;
-            targetLat = baseOriginLat + Math.sin(angle) * parkingRadius;
-          } else {
-            targetLng = baseOriginLng;
-            targetLat = baseOriginLat;
-          }
+          targetLng = sppg.lng;
+          targetLat = sppg.lat;
         }
       }
 
       s.targetLat = targetLat;
       s.targetLng = targetLng;
 
-      // If vehicle state was located far away (> 500m), snap instantly instead of sliding across map
-      if (Math.hypot(s.lat - s.targetLat, s.lng - s.targetLng) > 0.005) {
+      // When vehicle is idle (before simulation starts) or if vehicle state was located away from target (> 500m), snap instantly
+      if (v.status === 'idle' || Math.hypot(s.lat - s.targetLat, s.lng - s.targetLng) > 0.005) {
         s.lat = s.targetLat;
         s.lng = s.targetLng;
       }

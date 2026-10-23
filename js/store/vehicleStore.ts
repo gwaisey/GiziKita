@@ -95,15 +95,12 @@ export const useVehicleStore = create<VehicleState>()(
               const hasValidStart = v.route_geometry && v.route_geometry.length > 0
                 && (sppgLng == null || sppgLat == null || Math.hypot(v.route_geometry[0][0] - sppgLng, v.route_geometry[0][1] - sppgLat) < 0.005);
 
-              const resolvedLng = hasValidStart ? v.route_geometry![0][0] : sppgLng;
-              const resolvedLat = hasValidStart ? v.route_geometry![0][1] : sppgLat;
-
               return {
                 ...v,
                 status: 'idle' as VehicleStatus,
                 route_progress: 0,
-                last_lng: resolvedLng,
-                last_lat: resolvedLat,
+                last_lng: sppgLng,
+                last_lat: sppgLat,
                 // Invalidate stale route if it does not originate at regional SPPG Hub
                 route_source: hasValidStart ? v.route_source : ('demo_unverified' as const),
               };
