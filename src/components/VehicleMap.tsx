@@ -77,9 +77,16 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
   }, []);
 
   const applyVerifiedRoute = useCallback(async (vehicle: Vehicle) => {
-    if (vehicle.last_lng == null || vehicle.last_lat == null || vehicle.destination_lng == null || vehicle.destination_lat == null) return false;
+    if (vehicle.destination_lng == null || vehicle.destination_lat == null) return false;
+
+    // A vehicle's journey always begins at its regional SPPG Hub
+    const sppg = sppgUnits.find((s: any) => s.city === vehicle.city);
+    const startLng = sppg?.lng ?? (vehicle.route_geometry?.[0]?.[0] ?? vehicle.last_lng);
+    const startLat = sppg?.lat ?? (vehicle.route_geometry?.[0]?.[1] ?? vehicle.last_lat);
+    if (startLng == null || startLat == null) return false;
+
     const route = await VehicleService.fetchMapboxRoute(
-      [vehicle.last_lng, vehicle.last_lat],
+      [startLng, startLat],
       [vehicle.destination_lng, vehicle.destination_lat],
       vehicle.id
     );
@@ -94,7 +101,7 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
     }));
     void queryClient.invalidateQueries({ queryKey: queryKeys.infrastructure });
     return true;
-  }, [queryClient]);
+  }, [sppgUnits, queryClient]);
 
   useEffect(() => {
     if (mapStatus !== 'ready' || !infrastructureQuery.data) return;
@@ -248,9 +255,37 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
       // Explicitly tell TS that state is defined now
       const s = state!;
 
-      // Update targets from DB state
-      s.targetLat = v.last_lat ?? s.lat;
-      s.targetLng = v.last_lng ?? s.lng;
+      // Calculate target position from state
+      let targetLat = v.last_lat ?? s.lat;
+      let targetLng = v.last_lng ?? s.lng;
+
+      // Vehicles in 'idle' (Siaga) must always be stationed at their SPPG Hub
+      if (v.status === 'idle') {
+        const sppg = sppgUnits.find((h: any) => h.city === v.city);
+        if (sppg) {
+          const originLng = (v.route_geometry && v.route_geometry.length > 0) ? v.route_geometry[0][0] : sppg.lng;
+          const originLat = (v.route_geometry && v.route_geometry.length > 0) ? v.route_geometry[0][1] : sppg.lat;
+
+          // Realistic parking bay offset so multiple idle vehicles don't overlap on 1 pixel
+          const cityIdleVehicles = targetFleet.filter(item => item.city === v.city && item.status === 'idle');
+          const vehicleIdx = cityIdleVehicles.findIndex(item => item.id === v.id);
+          const totalInHub = Math.max(cityIdleVehicles.length, 1);
+
+          if (totalInHub > 1 && vehicleIdx >= 0) {
+            // Position parked vehicles around the SPPG compound (~20 meters)
+            const angle = (vehicleIdx * (2 * Math.PI / totalInHub)) + Math.PI / 4;
+            const parkingRadius = 0.00018;
+            targetLng = originLng + Math.cos(angle) * parkingRadius;
+            targetLat = originLat + Math.sin(angle) * parkingRadius;
+          } else {
+            targetLng = originLng;
+            targetLat = originLat;
+          }
+        }
+      }
+
+      s.targetLat = targetLat;
+      s.targetLng = targetLng;
       
       // Calculate target bearing if moving significantly
       const dy = s.targetLat - s.lat;

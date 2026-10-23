@@ -80,11 +80,22 @@ export const useVehicleStore = create<VehicleState>()(
 
           // Reset any "active" statuses persisted from a previous simulation session.
           // Simulation is never running at startup, so all moving vehicles must appear
-          // as 'idle' (Siaga) until the user explicitly starts the simulation.
+          // as 'idle' (Siaga) and positioned at the SPPG Hub (start of their route).
           const ACTIVE_STATUSES: VehicleStatus[] = ['en_route', 'delayed', 'unloading', 'loading'];
-          const fetchedVehicles: Vehicle[] = (data ?? []).map((v: Vehicle) =>
-            ACTIVE_STATUSES.includes(v.status) ? { ...v, status: 'idle' as VehicleStatus } : v
-          );
+          const fetchedVehicles: Vehicle[] = (data ?? []).map((v: Vehicle) => {
+            const isIdle = ACTIVE_STATUSES.includes(v.status) || v.status === 'idle';
+            if (isIdle) {
+              const startCoord = v.route_geometry && v.route_geometry.length > 0 ? v.route_geometry[0] : null;
+              return {
+                ...v,
+                status: 'idle' as VehicleStatus,
+                route_progress: 0,
+                last_lng: startCoord ? startCoord[0] : v.last_lng,
+                last_lat: startCoord ? startCoord[1] : v.last_lat,
+              };
+            }
+            return v;
+          });
 
           if (requestGeneration !== vehicleLoadGeneration) return get().vehicles;
           set({ 
