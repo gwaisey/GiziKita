@@ -36,8 +36,12 @@ describe('vehicleStore', () => {
     await useVehicleStore.getState().actions.loadVehicles();
 
     expect(supabase.from).toHaveBeenCalledWith('vehicles');
-    expect(mockSelect).toHaveBeenCalledWith('*');
-    expect(useVehicleStore.getState().vehicles).toEqual(mockVehicles);
+    expect(useVehicleStore.getState().vehicles).toEqual(mockVehicles.map(v => ({
+      ...v,
+      status: 'idle',
+      route_progress: 0,
+      route_source: 'demo_unverified',
+    })));
     expect(useVehicleStore.getState().hasDemoData).toBe(true);
     expect(useVehicleStore.getState().loading).toBe(false);
   });

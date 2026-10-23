@@ -7,7 +7,7 @@ import 'mapbox-gl/dist/mapbox-gl.css';
 import type { FeatureCollection, LineString } from 'geojson';
 import { useVehicleStore, Vehicle } from '@/js/store/vehicleStore';
 import { useQuery } from '@tanstack/react-query';
-import { INDONESIA_514_REGIONS } from '@/js/data/indonesia_regions';
+import { INDONESIA_514_REGIONS, resolveSppgLocation, normalizeRegionName } from '@/js/data/indonesia_regions';
 import VehicleService, { VEHICLE_STATUS_META } from '@/js/services/VehicleService';
 import { AlertTriangle, MapPin, Navigation, School, Trash2, User, X, Zap } from 'lucide-react';
 import { supabase } from '@/js/core/SupabaseClient';
@@ -93,17 +93,31 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
     if (vehicle.route_source !== 'mapbox_driving' || !route || route.length < 2) return false;
     const endpoint = route[route.length - 1];
     if (vehicle.destination_lng == null || vehicle.destination_lat == null) return false;
-    // Directions geometry ends at its snapped waypoint. If stored school coords
-    // disagree, the route would visually continue after the vehicle stops.
-    return Math.abs(endpoint[0] - vehicle.destination_lng) < 0.001
+
+    // Condition 1: Route destination must match destination school coordinates
+    const matchesDestination = Math.abs(endpoint[0] - vehicle.destination_lng) < 0.001
       && Math.abs(endpoint[1] - vehicle.destination_lat) < 0.001;
-  }, []);
+    if (!matchesDestination) return false;
+
+    // Condition 2: Route origin MUST start at the vehicle's regional SPPG Hub (< 500m)
+    const sppg = resolveSppgLocation(vehicle.city, sppgUnits);
+    if (sppg) {
+      const startPoint = route[0];
+      const distToSppg = Math.hypot(startPoint[0] - sppg.lng, startPoint[1] - sppg.lat);
+      if (distToSppg > 0.005) {
+        // Route origin does not match regional SPPG Hub — invalidate to force re-routing from SPPG!
+        return false;
+      }
+    }
+
+    return true;
+  }, [sppgUnits]);
 
   const applyVerifiedRoute = useCallback(async (vehicle: Vehicle) => {
     if (vehicle.destination_lng == null || vehicle.destination_lat == null) return false;
 
     // A vehicle's journey always begins at its regional SPPG Hub
-    const sppg = sppgUnits.find((s: any) => s.city === vehicle.city);
+    const sppg = resolveSppgLocation(vehicle.city, sppgUnits);
     const startLng = sppg?.lng ?? (vehicle.route_geometry?.[0]?.[0] ?? vehicle.last_lng);
     const startLat = sppg?.lat ?? (vehicle.route_geometry?.[0]?.[1] ?? vehicle.last_lat);
     if (startLng == null || startLat == null) return false;
@@ -298,15 +312,20 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
       let targetLat = v.last_lat ?? s.lat;
       let targetLng = v.last_lng ?? s.lng;
 
-      // Vehicles in 'idle' (Siaga) must always be stationed at their SPPG Hub
+      // Vehicles in 'idle' (Siaga) must ALWAYS be stationed at their SPPG Hub without exception
       if (v.status === 'idle') {
-        const sppg = sppgUnits.find((h: any) => h.city === v.city);
+        const sppg = resolveSppgLocation(v.city, sppgUnits);
         if (sppg) {
-          const originLng = (v.route_geometry && v.route_geometry.length > 0) ? v.route_geometry[0][0] : sppg.lng;
-          const originLat = (v.route_geometry && v.route_geometry.length > 0) ? v.route_geometry[0][1] : sppg.lat;
+          // Check if vehicle has a verified route starting at this SPPG
+          const hasValidNearOrigin = v.route_geometry && v.route_geometry.length > 0
+            && Math.hypot(v.route_geometry[0][0] - sppg.lng, v.route_geometry[0][1] - sppg.lat) < 0.005;
+
+          const baseOriginLng = hasValidNearOrigin ? v.route_geometry![0][0] : sppg.lng;
+          const baseOriginLat = hasValidNearOrigin ? v.route_geometry![0][1] : sppg.lat;
 
           // Realistic parking bay offset so multiple idle vehicles don't overlap on 1 pixel
-          const cityIdleVehicles = targetFleet.filter(item => item.city === v.city && item.status === 'idle');
+          const normCity = normalizeRegionName(v.city);
+          const cityIdleVehicles = targetFleet.filter(item => normalizeRegionName(item.city) === normCity && item.status === 'idle');
           const vehicleIdx = cityIdleVehicles.findIndex(item => item.id === v.id);
           const totalInHub = Math.max(cityIdleVehicles.length, 1);
 
@@ -314,17 +333,23 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
             // Position parked vehicles around the SPPG compound (~20 meters)
             const angle = (vehicleIdx * (2 * Math.PI / totalInHub)) + Math.PI / 4;
             const parkingRadius = 0.00018;
-            targetLng = originLng + Math.cos(angle) * parkingRadius;
-            targetLat = originLat + Math.sin(angle) * parkingRadius;
+            targetLng = baseOriginLng + Math.cos(angle) * parkingRadius;
+            targetLat = baseOriginLat + Math.sin(angle) * parkingRadius;
           } else {
-            targetLng = originLng;
-            targetLat = originLat;
+            targetLng = baseOriginLng;
+            targetLat = baseOriginLat;
           }
         }
       }
 
       s.targetLat = targetLat;
       s.targetLng = targetLng;
+
+      // If vehicle state was located far away (> 500m), snap instantly instead of sliding across map
+      if (Math.hypot(s.lat - s.targetLat, s.lng - s.targetLng) > 0.005) {
+        s.lat = s.targetLat;
+        s.lng = s.targetLng;
+      }
       
       // Calculate target bearing if moving significantly
       const dy = s.targetLat - s.lat;

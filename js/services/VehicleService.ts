@@ -447,23 +447,34 @@ class VehicleService {
     }
     this.stopBackgroundSync();
 
-    // Reset all in-motion vehicles back to idle (Siaga) stationed at the SPPG Hub
+    // Reset all vehicles back to idle (Siaga) stationed at their regional SPPG Hub
     const ACTIVE_STATUSES: VehicleStatus[] = ['en_route', 'delayed', 'unloading', 'loading'];
-    useVehicleStore.setState(state => ({
-      vehicles: state.vehicles.map(v => {
-        if (ACTIVE_STATUSES.includes(v.status) || v.status === 'idle') {
-          const startCoord = v.route_geometry && v.route_geometry.length > 0 ? v.route_geometry[0] : null;
-          return {
-            ...v,
-            status: 'idle' as VehicleStatus,
-            route_progress: 0,
-            last_lng: startCoord ? startCoord[0] : v.last_lng,
-            last_lat: startCoord ? startCoord[1] : v.last_lat,
-          };
-        }
-        return v;
-      })
-    }));
+    import('@/js/data/indonesia_regions').then(({ resolveSppgLocation }) => {
+      useVehicleStore.setState(state => ({
+        vehicles: state.vehicles.map(v => {
+          if (ACTIVE_STATUSES.includes(v.status) || v.status === 'idle') {
+            const sppgLoc = resolveSppgLocation(v.city);
+            const sppgLng = sppgLoc?.lng ?? v.last_lng;
+            const sppgLat = sppgLoc?.lat ?? v.last_lat;
+
+            const hasValidStart = v.route_geometry && v.route_geometry.length > 0
+              && (sppgLng == null || sppgLat == null || Math.hypot(v.route_geometry[0][0] - sppgLng, v.route_geometry[0][1] - sppgLat) < 0.005);
+
+            const resolvedLng = hasValidStart ? v.route_geometry![0][0] : sppgLng;
+            const resolvedLat = hasValidStart ? v.route_geometry![0][1] : sppgLat;
+
+            return {
+              ...v,
+              status: 'idle' as VehicleStatus,
+              route_progress: 0,
+              last_lng: resolvedLng,
+              last_lat: resolvedLat,
+            };
+          }
+          return v;
+        })
+      }));
+    });
   }
 
   private stopBackgroundSync() {

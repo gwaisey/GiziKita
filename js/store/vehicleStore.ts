@@ -79,6 +79,8 @@ export const useVehicleStore = create<VehicleState>()(
           const { data, error } = await supabase.from('vehicles').select('*');
           if (error) throw error;
 
+          const { resolveSppgLocation } = await import('../data/indonesia_regions');
+
           // Reset any "active" statuses persisted from a previous simulation session.
           // Simulation is never running at startup, so all moving vehicles must appear
           // as 'idle' (Siaga) and positioned at the SPPG Hub (start of their route).
@@ -86,13 +88,24 @@ export const useVehicleStore = create<VehicleState>()(
           const fetchedVehicles: Vehicle[] = (data ?? []).map((v: Vehicle) => {
             const isIdle = ACTIVE_STATUSES.includes(v.status) || v.status === 'idle';
             if (isIdle) {
-              const startCoord = v.route_geometry && v.route_geometry.length > 0 ? v.route_geometry[0] : null;
+              const sppgLoc = resolveSppgLocation(v.city);
+              const sppgLng = sppgLoc?.lng ?? v.last_lng;
+              const sppgLat = sppgLoc?.lat ?? v.last_lat;
+
+              const hasValidStart = v.route_geometry && v.route_geometry.length > 0
+                && (sppgLng == null || sppgLat == null || Math.hypot(v.route_geometry[0][0] - sppgLng, v.route_geometry[0][1] - sppgLat) < 0.005);
+
+              const resolvedLng = hasValidStart ? v.route_geometry![0][0] : sppgLng;
+              const resolvedLat = hasValidStart ? v.route_geometry![0][1] : sppgLat;
+
               return {
                 ...v,
                 status: 'idle' as VehicleStatus,
                 route_progress: 0,
-                last_lng: startCoord ? startCoord[0] : v.last_lng,
-                last_lat: startCoord ? startCoord[1] : v.last_lat,
+                last_lng: resolvedLng,
+                last_lat: resolvedLat,
+                // Invalidate stale route if it does not originate at regional SPPG Hub
+                route_source: hasValidStart ? v.route_source : ('demo_unverified' as const),
               };
             }
             return v;

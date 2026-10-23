@@ -104,3 +104,62 @@ export const INDONESIA_514_REGIONS: RegionData[] = [
   { name: 'Kota Banjarmasin', province: 'Kalimantan Selatan', prefix: 'DA', lat: -3.3167, lng: 114.5900, isKota: true },
   { name: 'Kota Samarinda', province: 'Kalimantan Timur', prefix: 'KT', lat: -0.4948, lng: 117.1436, isKota: true }
 ];
+
+/**
+ * Normalizes city/regency names for robust matching across datasets.
+ * Strips prefixes like 'Kota', 'Kabupaten', 'Kab.', 'DKI', and normalizes whitespace.
+ */
+export function normalizeRegionName(name: string | null | undefined): string {
+  if (!name) return '';
+  return name
+    .toLowerCase()
+    .replace(/^(kabupaten|kota|kab\.?)\s+/i, '')
+    .replace(/^daerah\s+khusus\s+ibukota\s+/i, '')
+    .replace(/^dki\s+/i, '')
+    .trim();
+}
+
+/**
+ * Finds a region from INDONESIA_514_REGIONS by matching exact, case-insensitive,
+ * or normalized names.
+ */
+export function findRegionByName(name: string | null | undefined): RegionData | undefined {
+  if (!name) return undefined;
+  const lower = name.toLowerCase().trim();
+  const direct = INDONESIA_514_REGIONS.find(r => r.name.toLowerCase() === lower);
+  if (direct) return direct;
+
+  const norm = normalizeRegionName(name);
+  return INDONESIA_514_REGIONS.find(r => normalizeRegionName(r.name) === norm);
+}
+
+/**
+ * Resolves the verified SPPG coordinates for any city/regency.
+ * 1. Checks available SPPG units (exact and normalized match)
+ * 2. Falls back to verified regional administrative coordinates in INDONESIA_514_REGIONS
+ */
+export function resolveSppgLocation(
+  cityName: string | null | undefined,
+  sppgUnits?: Array<{ city?: string; name?: string; lat: number; lng: number }>
+): { lat: number; lng: number } | null {
+  if (!cityName && (!sppgUnits || sppgUnits.length === 0)) return null;
+
+  if (cityName && sppgUnits && sppgUnits.length > 0) {
+    const norm = normalizeRegionName(cityName);
+    const matchedUnit = sppgUnits.find(u => {
+      if (u.city && normalizeRegionName(u.city) === norm) return true;
+      if (u.name && normalizeRegionName(u.name.replace(/^SPPG\s+/i, '').replace(/\s+-\s+Hub\s+\d+$/i, '')) === norm) return true;
+      return false;
+    });
+    if (matchedUnit && Number.isFinite(matchedUnit.lat) && Number.isFinite(matchedUnit.lng)) {
+      return { lat: matchedUnit.lat, lng: matchedUnit.lng };
+    }
+  }
+
+  const region = findRegionByName(cityName);
+  if (region) {
+    return { lat: region.lat, lng: region.lng };
+  }
+
+  return null;
+}
