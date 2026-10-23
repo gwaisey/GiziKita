@@ -237,6 +237,39 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
     }
   }, [selectedCity]);
 
+  // --- Operating SPPG Hubs Filter: Only display SPPGs that have active fleet vehicles ---
+  const operatingSppgIdentifiers = useMemo(() => {
+    const activeSet = new Set<string>();
+    if (!vehicles || vehicles.length === 0 || !sppgUnits || sppgUnits.length === 0) return activeSet;
+
+    // Group vehicles by city to determine hub distribution index
+    const cityVehicleGroups = new Map<string, Vehicle[]>();
+    for (const v of vehicles) {
+      const norm = normalizeRegionName(v.city);
+      const list = cityVehicleGroups.get(norm) || [];
+      list.push(v);
+      cityVehicleGroups.set(norm, list);
+    }
+
+    // Determine which SPPG hubs serve as home base for the active fleet
+    for (const [, cityVehicles] of cityVehicleGroups) {
+      cityVehicles.forEach((v, idx) => {
+        const sppg = resolveSppgLocation(v.city, sppgUnits, {
+          vehicleLat: v.last_lat,
+          vehicleLng: v.last_lng,
+          vehicleIndex: idx
+        });
+        if (sppg) {
+          if (sppg.id) activeSet.add(sppg.id);
+          if (sppg.name) activeSet.add(sppg.name);
+          activeSet.add(`${sppg.lat.toFixed(5)},${sppg.lng.toFixed(5)}`);
+        }
+      });
+    }
+
+    return activeSet;
+  }, [vehicles, sppgUnits]);
+
   const sppgGeoJSON = useMemo<FeatureCollection>(() => ({
     type: 'FeatureCollection',
     features: sppgUnits
@@ -247,12 +280,18 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
       })
       .filter(s => Number.isFinite(s.lng) && Number.isFinite(s.lat))
       .filter(s => !offshoreMarkerIds.has(`sppg:${s.id ?? s.name}`))
+      // ONLY SHOW SPPG HUBS THAT HAVE ACTIVE FLEET VEHICLES!
+      .filter(s => 
+        (s.id && operatingSppgIdentifiers.has(s.id)) ||
+        (s.name && operatingSppgIdentifiers.has(s.name)) ||
+        operatingSppgIdentifiers.has(`${s.lat.toFixed(5)},${s.lng.toFixed(5)}`)
+      )
       .map(s => ({
         type: 'Feature',
         geometry: { type: 'Point', coordinates: [s.lng, s.lat] },
         properties: { name: s.name, city: s.city }
       }))
-  }), [sppgUnits, selectedCity, offshoreMarkerIds]);
+  }), [sppgUnits, selectedCity, offshoreMarkerIds, operatingSppgIdentifiers]);
 
   const schoolsGeoJSON = useMemo<FeatureCollection>(() => ({
     type: 'FeatureCollection',
