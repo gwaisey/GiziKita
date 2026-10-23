@@ -46,21 +46,21 @@ export const INDONESIA_514_REGIONS: RegionData[] = [
   { name: 'Halmahera Utara', province: 'Maluku Utara', prefix: 'DG', lat: 1.7333, lng: 128.0000, isKota: false },
   { name: 'Halmahera Selatan', province: 'Maluku Utara', prefix: 'DG', lat: -0.5833, lng: 127.5500, isKota: false }, // Labuha, ibukota (on Bacan island)
   { name: 'Halmahera Timur', province: 'Maluku Utara', prefix: 'DG', lat: 1.0167, lng: 128.1833, isKota: false },   // Maba, ibukota Halmahera Timur
-  { name: 'Kepulauan Sula', province: 'Maluku Utara', prefix: 'DG', lat: -1.8614, lng: 125.4678, isKota: false },  // Sanana, ibukota Kep. Sula
-  { name: 'Pulau Morotai', province: 'Maluku Utara', prefix: 'DG', lat: 2.3167, lng: 128.4833, isKota: false },   // Daruba, ibukota Morotai
-  { name: 'Pulau Taliabu', province: 'Maluku Utara', prefix: 'DG', lat: -1.8000, lng: 124.7667, isKota: false },  // Bobong, ibukota Taliabu
+  { name: 'Kepulauan Sula', province: 'Maluku Utara', prefix: 'DG', lat: -2.0572, lng: 125.9802, isKota: false },  // Sanana, ibukota Kep. Sula (on land)
+  { name: 'Pulau Morotai', province: 'Maluku Utara', prefix: 'DG', lat: 2.0519, lng: 128.2982, isKota: false },   // Daruba, ibukota Morotai (on land)
+  { name: 'Pulau Taliabu', province: 'Maluku Utara', prefix: 'DG', lat: -1.9367, lng: 124.3778, isKota: false },  // Bobong, ibukota Taliabu (on land)
 
   // --- MALUKU (DE) - 100% VERIFIED ---
   { name: 'Kota Ambon', province: 'Maluku', prefix: 'DE', lat: -3.6954, lng: 128.1814, isKota: true },
   { name: 'Kota Tual', province: 'Maluku', prefix: 'DE', lat: -5.6333, lng: 132.7333, isKota: true },
-  { name: 'Buru', province: 'Maluku', prefix: 'DE', lat: -3.4167, lng: 126.6667, isKota: false },
+  { name: 'Buru', province: 'Maluku', prefix: 'DE', lat: -3.2725, lng: 127.1033, isKota: false },                 // Namlea, ibukota Buru (on land)
   { name: 'Buru Selatan', province: 'Maluku', prefix: 'DE', lat: -3.7500, lng: 126.7500, isKota: false },
-  { name: 'Kepulauan Aru', province: 'Maluku', prefix: 'DE', lat: -6.2167, lng: 134.4833, isKota: false },         // Dobo, ibukota Kep. Aru (on land)
-  { name: 'Maluku Barat Daya', province: 'Maluku', prefix: 'DE', lat: -7.9833, lng: 126.7167, isKota: false },    // Tiakur, ibukota MBD (on Moa island)
+  { name: 'Kepulauan Aru', province: 'Maluku', prefix: 'DE', lat: -5.7656, lng: 134.2289, isKota: false },         // Dobo, ibukota Kep. Aru (on land)
+  { name: 'Maluku Barat Daya', province: 'Maluku', prefix: 'DE', lat: -8.1967, lng: 127.9367, isKota: false },    // Tiakur, ibukota MBD (on land)
   { name: 'Maluku Tengah', province: 'Maluku', prefix: 'DE', lat: -3.3497, lng: 129.0167, isKota: false },        // Masohi, ibukota (on Seram island)
   { name: 'Maluku Tenggara', province: 'Maluku', prefix: 'DE', lat: -5.6325, lng: 132.7111, isKota: false },      // Langgur, ibukota (on Kei Kecil island)
   { name: 'Kepulauan Tanimbar', province: 'Maluku', prefix: 'DE', lat: -7.9833, lng: 131.3000, isKota: false },   // Saumlaki, ibukota (on Yamdena island)
-  { name: 'Seram Bagian Barat', province: 'Maluku', prefix: 'DE', lat: -3.1167, lng: 128.4333, isKota: false },
+  { name: 'Seram Bagian Barat', province: 'Maluku', prefix: 'DE', lat: -3.0719, lng: 128.1883, isKota: false },   // Piru, ibukota SBB (on land)
   { name: 'Seram Bagian Timur', province: 'Maluku', prefix: 'DE', lat: -3.2167, lng: 130.5000, isKota: false },
 
   // --- SULAWESI (DD/DB/DN/DT) ---

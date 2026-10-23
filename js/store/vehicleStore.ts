@@ -21,6 +21,7 @@ export interface VerifiedDrivingRoute {
   coordinates: number[][];
   snappedStart: [number, number];
   snappedDestination: [number, number];
+  distance?: number;
 }
 
 export interface Vehicle {

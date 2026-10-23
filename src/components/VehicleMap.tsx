@@ -54,13 +54,36 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
   const infrastructureQuery = useQuery({
     queryKey: queryKeys.infrastructure,
     queryFn: async () => {
-      const [hubsResult, schoolsResult] = await Promise.all([
+      const [{ INDONESIA_514_REGIONS }, hubsResult, schoolsResult] = await Promise.all([
+        import('@/js/data/indonesia_regions'),
         supabase.from('sppg_units').select('*'),
         supabase.from('schools').select('*'),
       ]);
       if (hubsResult.error) throw hubsResult.error;
       if (schoolsResult.error) throw schoolsResult.error;
-      return { sppgUnits: hubsResult.data ?? [], schools: schoolsResult.data ?? [] };
+
+      const regionMap = new Map<string, any>();
+      for (const r of INDONESIA_514_REGIONS) {
+        regionMap.set(r.name.toLowerCase(), r);
+      }
+
+      // Reconcile SPPG hubs against verified regional land coordinates
+      const sanitizedHubs = (hubsResult.data ?? []).map((hub: any) => {
+        const cityName = (hub.city || '').toLowerCase();
+        const matched = regionMap.get(cityName) || regionMap.get(
+          (hub.name || '').replace(/^SPPG\s+/i, '').replace(/\s+-\s+Hub\s+\d+$/i, '').trim().toLowerCase()
+        );
+        if (matched) {
+          return {
+            ...hub,
+            lat: matched.lat,
+            lng: matched.lng,
+          };
+        }
+        return hub;
+      });
+
+      return { sppgUnits: sanitizedHubs, schools: schoolsResult.data ?? [] };
     },
   });
   const sppgUnits: any[] = infrastructureQuery.data?.sppgUnits ?? [];
@@ -85,14 +108,30 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
     const startLat = sppg?.lat ?? (vehicle.route_geometry?.[0]?.[1] ?? vehicle.last_lat);
     if (startLng == null || startLat == null) return false;
 
-    const route = await VehicleService.fetchMapboxRoute(
+    let activeRoute = await VehicleService.fetchMapboxRoute(
       [startLng, startLat],
       [vehicle.destination_lng, vehicle.destination_lat],
       vehicle.id
     );
-    if (!route) return false;
-    await VehicleService.updateVehicleRoute(vehicle.id, route);
-    const [destinationLng, destinationLat] = route.coordinates[route.coordinates.length - 1];
+    if (!activeRoute) return false;
+
+    // Minimum distance check: If route is too short (< 800m, e.g. snapped destination to coast),
+    // probe landward angles to ensure school is at a realistic delivery distance (1.2 - 3.0 km)
+    if (activeRoute.distance != null && activeRoute.distance < 800) {
+      const probeAngles = [0, Math.PI / 2, Math.PI, (3 * Math.PI) / 2, Math.PI / 4, (3 * Math.PI) / 4];
+      for (const angle of probeAngles) {
+        const altLng = startLng + Math.cos(angle) * 0.018; // ~2km
+        const altLat = startLat + Math.sin(angle) * 0.018;
+        const retryRoute = await VehicleService.fetchMapboxRoute([startLng, startLat], [altLng, altLat]);
+        if (retryRoute && retryRoute.distance != null && retryRoute.distance >= 1000) {
+          activeRoute = retryRoute;
+          break;
+        }
+      }
+    }
+
+    await VehicleService.updateVehicleRoute(vehicle.id, activeRoute);
+    const [destinationLng, destinationLat] = activeRoute.coordinates[activeRoute.coordinates.length - 1];
     queryClient.setQueryData(queryKeys.infrastructure, (current: any) => current && ({
       ...current,
       schools: current.schools.map((school: any) => school.name === vehicle.destination_school_name

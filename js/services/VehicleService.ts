@@ -146,6 +146,7 @@ class VehicleService {
         coordinates: coords as number[][],
         snappedStart: snappedStart as [number, number],
         snappedDestination: snappedDestination as [number, number],
+        distance: json.routes?.[0]?.distance,
       };
     } catch (err) {
       console.error('[MAPBOX ROUTE FETCH ERROR]', err);
