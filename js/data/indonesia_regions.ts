@@ -135,30 +135,56 @@ export function findRegionByName(name: string | null | undefined): RegionData | 
 
 /**
  * Resolves the verified SPPG coordinates for any city/regency.
- * 1. Checks available SPPG units (exact and normalized match)
+ * 1. Checks available SPPG units (matching by proximity or vehicle index across multiple hubs)
  * 2. Falls back to verified regional administrative coordinates in INDONESIA_514_REGIONS
  */
 export function resolveSppgLocation(
   cityName: string | null | undefined,
-  sppgUnits?: Array<{ city?: string; name?: string; lat: number; lng: number }>
-): { lat: number; lng: number } | null {
+  sppgUnits?: Array<{ id?: string; city?: string; name?: string; lat: number; lng: number }>,
+  options?: { vehicleLat?: number | null; vehicleLng?: number | null; vehicleIndex?: number }
+): { lat: number; lng: number; name?: string; id?: string } | null {
   if (!cityName && (!sppgUnits || sppgUnits.length === 0)) return null;
 
   if (cityName && sppgUnits && sppgUnits.length > 0) {
     const norm = normalizeRegionName(cityName);
-    const matchedUnit = sppgUnits.find(u => {
+    const cityUnits = sppgUnits.filter(u => {
       if (u.city && normalizeRegionName(u.city) === norm) return true;
       if (u.name && normalizeRegionName(u.name.replace(/^SPPG\s+/i, '').replace(/\s+-\s+Hub\s+\d+$/i, '')) === norm) return true;
       return false;
     });
-    if (matchedUnit && Number.isFinite(matchedUnit.lat) && Number.isFinite(matchedUnit.lng)) {
-      return { lat: matchedUnit.lat, lng: matchedUnit.lng };
+
+    if (cityUnits.length > 0) {
+      // 1. If vehicle has known coordinates, check if it matches an SPPG hub (< 2 km)
+      if (options?.vehicleLat != null && options?.vehicleLng != null && Number.isFinite(options.vehicleLat) && Number.isFinite(options.vehicleLng)) {
+        let closest = cityUnits[0];
+        let minDist = Number.POSITIVE_INFINITY;
+        for (const unit of cityUnits) {
+          const dist = Math.hypot(unit.lng - options.vehicleLng, unit.lat - options.vehicleLat);
+          if (dist < minDist) {
+            minDist = dist;
+            closest = unit;
+          }
+        }
+        if (minDist < 0.02) { // within ~2 km
+          return { lat: closest.lat, lng: closest.lng, name: closest.name, id: closest.id };
+        }
+      }
+
+      // 2. If vehicle index within city is provided, distribute across hubs
+      if (options?.vehicleIndex != null && options.vehicleIndex >= 0) {
+        const assigned = cityUnits[options.vehicleIndex % cityUnits.length];
+        return { lat: assigned.lat, lng: assigned.lng, name: assigned.name, id: assigned.id };
+      }
+
+      // 3. Fallback to first unit
+      const first = cityUnits[0];
+      return { lat: first.lat, lng: first.lng, name: first.name, id: first.id };
     }
   }
 
   const region = findRegionByName(cityName);
   if (region) {
-    return { lat: region.lat, lng: region.lng };
+    return { lat: region.lat, lng: region.lng, name: `SPPG ${region.name} - Hub 1` };
   }
 
   return null;

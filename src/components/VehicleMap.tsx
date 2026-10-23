@@ -7,7 +7,7 @@ import 'mapbox-gl/dist/mapbox-gl.css';
 import type { FeatureCollection, LineString } from 'geojson';
 import { useVehicleStore, Vehicle } from '@/js/store/vehicleStore';
 import { useQuery } from '@tanstack/react-query';
-import { INDONESIA_514_REGIONS, resolveSppgLocation } from '@/js/data/indonesia_regions';
+import { INDONESIA_514_REGIONS, resolveSppgLocation, normalizeRegionName } from '@/js/data/indonesia_regions';
 import VehicleService, { VEHICLE_STATUS_META } from '@/js/services/VehicleService';
 import { AlertTriangle, MapPin, Navigation, School, Trash2, User, X, Zap } from 'lucide-react';
 import { supabase } from '@/js/core/SupabaseClient';
@@ -99,8 +99,17 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
       && Math.abs(endpoint[1] - vehicle.destination_lat) < 0.001;
     if (!matchesDestination) return false;
 
-    // Condition 2: Route origin MUST start at the vehicle's regional SPPG Hub (< 500m)
-    const sppg = resolveSppgLocation(vehicle.city, sppgUnits);
+    // Condition 2: Route origin MUST start at the vehicle's assigned regional SPPG Hub (< 500m)
+    const normCity = normalizeRegionName(vehicle.city);
+    const cityVehicles = vehicles.filter(item => normalizeRegionName(item.city) === normCity);
+    const vehicleIdx = cityVehicles.findIndex(item => item.id === vehicle.id);
+
+    const sppg = resolveSppgLocation(vehicle.city, sppgUnits, {
+      vehicleLat: vehicle.last_lat,
+      vehicleLng: vehicle.last_lng,
+      vehicleIndex: vehicleIdx >= 0 ? vehicleIdx : undefined
+    });
+
     if (sppg) {
       const startPoint = route[0];
       const distToSppg = Math.hypot(startPoint[0] - sppg.lng, startPoint[1] - sppg.lat);
@@ -116,8 +125,17 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
   const applyVerifiedRoute = useCallback(async (vehicle: Vehicle) => {
     if (vehicle.destination_lng == null || vehicle.destination_lat == null) return false;
 
-    // A vehicle's journey always begins at its regional SPPG Hub
-    const sppg = resolveSppgLocation(vehicle.city, sppgUnits);
+    // A vehicle's journey always begins at its assigned regional SPPG Hub
+    const normCity = normalizeRegionName(vehicle.city);
+    const cityVehicles = vehicles.filter(item => normalizeRegionName(item.city) === normCity);
+    const vehicleIdx = cityVehicles.findIndex(item => item.id === vehicle.id);
+
+    const sppg = resolveSppgLocation(vehicle.city, sppgUnits, {
+      vehicleLat: vehicle.last_lat,
+      vehicleLng: vehicle.last_lng,
+      vehicleIndex: vehicleIdx >= 0 ? vehicleIdx : undefined
+    });
+
     const startLng = sppg?.lng ?? (vehicle.route_geometry?.[0]?.[0] ?? vehicle.last_lng);
     const startLat = sppg?.lat ?? (vehicle.route_geometry?.[0]?.[1] ?? vehicle.last_lat);
     if (startLng == null || startLat == null) return false;
@@ -222,7 +240,11 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
   const sppgGeoJSON = useMemo<FeatureCollection>(() => ({
     type: 'FeatureCollection',
     features: sppgUnits
-      .filter(s => selectedCity === 'Semua' || s.province === selectedCity)
+      .filter(s => {
+        if (selectedCity === 'Semua') return true;
+        const norm = normalizeRegionName(selectedCity);
+        return normalizeRegionName(s.city) === norm || normalizeRegionName(s.province) === norm;
+      })
       .filter(s => Number.isFinite(s.lng) && Number.isFinite(s.lat))
       .filter(s => !offshoreMarkerIds.has(`sppg:${s.id ?? s.name}`))
       .map(s => ({
@@ -235,6 +257,11 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
   const schoolsGeoJSON = useMemo<FeatureCollection>(() => ({
     type: 'FeatureCollection',
     features: schools
+      .filter(s => {
+        if (selectedCity === 'Semua') return true;
+        const norm = normalizeRegionName(selectedCity);
+        return normalizeRegionName(s.city) === norm || normalizeRegionName(s.province) === norm;
+      })
       .filter(s => Number.isFinite(s.lng) && Number.isFinite(s.lat))
       .filter(s => !offshoreMarkerIds.has(`school:${s.id ?? s.name}`))
       .map(s => ({
@@ -242,7 +269,7 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
       geometry: { type: 'Point', coordinates: [s.lng, s.lat] },
       properties: { name: s.name, province: s.province }
     }))
-  }), [schools, offshoreMarkerIds]);
+  }), [schools, selectedCity, offshoreMarkerIds]);
 
   // Filter vehicles based on selected city for UI elements
   const filteredVehicles = useMemo(() => {
@@ -312,9 +339,18 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
       let targetLat = v.last_lat ?? s.lat;
       let targetLng = v.last_lng ?? s.lng;
 
-      // Vehicles in 'idle' (Siaga) must ALWAYS be stationed EXACTLY at their SPPG Hub coordinates when simulation has not started
+      // Vehicles in 'idle' (Siaga) must ALWAYS be stationed EXACTLY at their assigned SPPG Hub coordinates when simulation has not started
       if (v.status === 'idle') {
-        const sppg = resolveSppgLocation(v.city, sppgUnits);
+        const normCity = normalizeRegionName(v.city);
+        const cityVehicles = targetFleet.filter(item => normalizeRegionName(item.city) === normCity);
+        const vehicleIdx = cityVehicles.findIndex(item => item.id === v.id);
+
+        const sppg = resolveSppgLocation(v.city, sppgUnits, {
+          vehicleLat: v.last_lat,
+          vehicleLng: v.last_lng,
+          vehicleIndex: vehicleIdx >= 0 ? vehicleIdx : undefined
+        });
+
         if (sppg) {
           targetLng = sppg.lng;
           targetLat = sppg.lat;

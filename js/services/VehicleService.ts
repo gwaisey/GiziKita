@@ -173,7 +173,10 @@ class VehicleService {
     const [snappedStartLng, snappedStartLat] = route.coordinates[0] as [number, number];
     const [snappedDestinationLng, snappedDestinationLat] = route.coordinates[route.coordinates.length - 1] as [number, number];
     const vehicle = useVehicleStore.getState().vehicles.find(v => v.id === vehicleId);
-    const sppgLoc = resolveSppgLocation(vehicle?.city);
+    const sppgLoc = resolveSppgLocation(vehicle?.city, undefined, {
+      vehicleLat: vehicle?.last_lat,
+      vehicleLng: vehicle?.last_lng,
+    });
     // When simulation has not started (vehicle is idle), last position remains EXACTLY at SPPG coordinates!
     const activeLng = (vehicle?.status === 'idle' && sppgLoc) ? sppgLoc.lng : snappedStartLng;
     const activeLat = (vehicle?.status === 'idle' && sppgLoc) ? sppgLoc.lat : snappedStartLat;
@@ -253,9 +256,19 @@ class VehicleService {
         const cityStations: any[] = [];
         
         for (let i = 0; i < stationCount; i++) {
-          // --- NUCLEAR PRECISION ANCHOR (Hub stays at center) ---
+          // Distinct district coordinates for each SPPG hub in the region (~2.5 km apart)
           let hubLat = region.lat;
           let hubLng = region.lng;
+
+          if (i === 1) {
+            // Hub 2: Distrik Sektor Timur / Utara
+            hubLat = region.lat + 0.015;
+            hubLng = region.lng + 0.018;
+          } else if (i === 2) {
+            // Hub 3: Distrik Sektor Barat / Selatan
+            hubLat = region.lat - 0.015;
+            hubLng = region.lng - 0.018;
+          }
 
           const station = {
             name: `SPPG ${region.name} - Hub ${i + 1}`,
@@ -459,7 +472,10 @@ class VehicleService {
       useVehicleStore.setState(state => ({
         vehicles: state.vehicles.map(v => {
           if (ACTIVE_STATUSES.includes(v.status) || v.status === 'idle') {
-            const sppgLoc = resolveSppgLocation(v.city);
+            const sppgLoc = resolveSppgLocation(v.city, undefined, {
+              vehicleLat: v.last_lat,
+              vehicleLng: v.last_lng,
+            });
             const sppgLng = sppgLoc?.lng ?? v.last_lng;
             const sppgLat = sppgLoc?.lat ?? v.last_lat;
 

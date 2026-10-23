@@ -85,10 +85,19 @@ export const useVehicleStore = create<VehicleState>()(
           // Simulation is never running at startup, so all moving vehicles must appear
           // as 'idle' (Siaga) and positioned at the SPPG Hub (start of their route).
           const ACTIVE_STATUSES: VehicleStatus[] = ['en_route', 'delayed', 'unloading', 'loading'];
+          const cityVehicleCounts = new Map<string, number>();
           const fetchedVehicles: Vehicle[] = (data ?? []).map((v: Vehicle) => {
             const isIdle = ACTIVE_STATUSES.includes(v.status) || v.status === 'idle';
             if (isIdle) {
-              const sppgLoc = resolveSppgLocation(v.city);
+              const cityKey = (v.city || '').toLowerCase();
+              const idx = cityVehicleCounts.get(cityKey) || 0;
+              cityVehicleCounts.set(cityKey, idx + 1);
+
+              const sppgLoc = resolveSppgLocation(v.city, undefined, {
+                vehicleLat: v.last_lat,
+                vehicleLng: v.last_lng,
+                vehicleIndex: idx,
+              });
               const sppgLng = sppgLoc?.lng ?? v.last_lng;
               const sppgLat = sppgLoc?.lat ?? v.last_lat;
 
