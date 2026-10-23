@@ -237,90 +237,90 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
     }
   }, [selectedCity]);
 
-  // --- Operating SPPG Hubs Filter: Only display SPPGs that have active fleet vehicles ---
-  const operatingSppgIdentifiers = useMemo(() => {
-    const activeSet = new Set<string>();
-    if (!vehicles || vehicles.length === 0 || !sppgUnits || sppgUnits.length === 0) return activeSet;
+  // Filter vehicles based on selected city for UI elements and map layers
+  const filteredVehicles = useMemo(() => {
+    return vehicles.filter(v => {
+      if (selectedCity === 'Semua') return true;
+      return normalizeRegionName(v.city) === normalizeRegionName(selectedCity);
+    });
+  }, [vehicles, selectedCity]);
 
-    // Group vehicles by city to determine hub distribution index
-    const cityVehicleGroups = new Map<string, Vehicle[]>();
-    for (const v of vehicles) {
-      const norm = normalizeRegionName(v.city);
-      const list = cityVehicleGroups.get(norm) || [];
-      list.push(v);
-      cityVehicleGroups.set(norm, list);
+  // --- Strict SPPG GeoJSON: Constructed SOLELY from active fleet vehicles ---
+  // If an SPPG has no active vehicle, it CANNOT exist in this GeoJSON (Absolute 0% empty hubs).
+  const sppgGeoJSON = useMemo<FeatureCollection>(() => {
+    if (filteredVehicles.length === 0) {
+      return { type: 'FeatureCollection', features: [] };
     }
 
-    // Determine which SPPG hubs serve as home base for the active fleet
-    for (const [, cityVehicles] of cityVehicleGroups) {
+    const hubMap = new Map<string, any>();
+    const normSelected = normalizeRegionName(selectedCity);
+
+    // Group filtered vehicles by city to allocate multi-hubs cleanly
+    const cityGroups = new Map<string, Vehicle[]>();
+    filteredVehicles.forEach(v => {
+      const normCity = normalizeRegionName(v.city);
+      const list = cityGroups.get(normCity) || [];
+      list.push(v);
+      cityGroups.set(normCity, list);
+    });
+
+    for (const [normCity, cityVehicles] of cityGroups) {
+      if (selectedCity !== 'Semua' && normCity !== normSelected) continue;
+
       cityVehicles.forEach((v, idx) => {
         const sppg = resolveSppgLocation(v.city, sppgUnits, {
           vehicleLat: v.last_lat,
           vehicleLng: v.last_lng,
-          vehicleIndex: idx
+          vehicleIndex: idx,
         });
-        if (sppg) {
-          if (sppg.id) activeSet.add(sppg.id);
-          if (sppg.name) activeSet.add(sppg.name);
-          activeSet.add(`${sppg.lat.toFixed(5)},${sppg.lng.toFixed(5)}`);
+
+        if (sppg && Number.isFinite(sppg.lng) && Number.isFinite(sppg.lat)) {
+          const key = sppg.id || sppg.name || `${sppg.lat.toFixed(5)},${sppg.lng.toFixed(5)}`;
+          if (!hubMap.has(key) && !offshoreMarkerIds.has(`sppg:${sppg.id ?? sppg.name}`)) {
+            hubMap.set(key, {
+              type: 'Feature',
+              geometry: { type: 'Point', coordinates: [sppg.lng, sppg.lat] },
+              properties: { name: sppg.name || `SPPG ${v.city}`, city: v.city }
+            });
+          }
         }
       });
     }
 
-    return activeSet;
-  }, [vehicles, sppgUnits]);
+    return {
+      type: 'FeatureCollection',
+      features: Array.from(hubMap.values())
+    };
+  }, [filteredVehicles, sppgUnits, selectedCity, offshoreMarkerIds]);
 
-  const sppgGeoJSON = useMemo<FeatureCollection>(() => ({
-    type: 'FeatureCollection',
-    features: sppgUnits
-      .filter(s => {
-        if (selectedCity === 'Semua') return true;
-        const norm = normalizeRegionName(selectedCity);
-        return normalizeRegionName(s.city) === norm || normalizeRegionName(s.province) === norm;
-      })
-      .filter(s => Number.isFinite(s.lng) && Number.isFinite(s.lat))
-      .filter(s => !offshoreMarkerIds.has(`sppg:${s.id ?? s.name}`))
-      // ONLY SHOW SPPG HUBS THAT HAVE ACTIVE FLEET VEHICLES!
-      .filter(s => 
-        (s.id && operatingSppgIdentifiers.has(s.id)) ||
-        (s.name && operatingSppgIdentifiers.has(s.name)) ||
-        operatingSppgIdentifiers.has(`${s.lat.toFixed(5)},${s.lng.toFixed(5)}`)
-      )
-      .map(s => ({
-        type: 'Feature',
-        geometry: { type: 'Point', coordinates: [s.lng, s.lat] },
-        properties: { name: s.name, city: s.city }
-      }))
-  }), [sppgUnits, selectedCity, offshoreMarkerIds, operatingSppgIdentifiers]);
+  const schoolsGeoJSON = useMemo<FeatureCollection>(() => {
+    if (filteredVehicles.length === 0) {
+      return { type: 'FeatureCollection', features: [] };
+    }
 
-  const schoolsGeoJSON = useMemo<FeatureCollection>(() => ({
-    type: 'FeatureCollection',
-    features: schools
-      .filter(s => {
-        if (selectedCity === 'Semua') return true;
-        const norm = normalizeRegionName(selectedCity);
-        return normalizeRegionName(s.city) === norm || normalizeRegionName(s.province) === norm;
-      })
-      .filter(s => Number.isFinite(s.lng) && Number.isFinite(s.lat))
-      .filter(s => !offshoreMarkerIds.has(`school:${s.id ?? s.name}`))
-      .map(s => ({
-      type: 'Feature',
-      geometry: { type: 'Point', coordinates: [s.lng, s.lat] },
-      properties: { name: s.name, province: s.province }
-    }))
-  }), [schools, selectedCity, offshoreMarkerIds]);
+    const normSelected = normalizeRegionName(selectedCity);
+    return {
+      type: 'FeatureCollection',
+      features: schools
+        .filter(s => {
+          if (selectedCity === 'Semua') return true;
+          const norm = normalizeRegionName(s.city || s.province);
+          return norm === normSelected || normalizeRegionName(s.province) === normSelected;
+        })
+        .filter(s => Number.isFinite(s.lng) && Number.isFinite(s.lat) && !offshoreMarkerIds.has(`school:${s.id ?? s.name}`))
+        .map(s => ({
+          type: 'Feature',
+          geometry: { type: 'Point', coordinates: [s.lng, s.lat] },
+          properties: { name: s.name, province: s.province }
+        }))
+    };
+  }, [schools, selectedCity, filteredVehicles.length, offshoreMarkerIds]);
 
-  // Filter vehicles based on selected city for UI elements
-  const filteredVehicles = useMemo(() => {
-    return vehicles.filter(v => selectedCity === 'Semua' || v.city === selectedCity);
-  }, [vehicles, selectedCity]);
   const activeVehicleId = popupInfo?.id || selectedVehicle?.id;
   const activeVehicle = activeVehicleId
     ? vehicles.find(vehicle => vehicle.id === activeVehicleId) || popupInfo || selectedVehicle || null
     : null;
 
-
-  
   // --- 60FPS ANIMATION ENGINE (High Performance) ---
   const animationRef = useRef<number>(0);
   const lastUpdateRef = useRef<number>(Date.now());
@@ -341,10 +341,15 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
     // To keep it smooth, we use a slightly slower lerp factor
     const t = 0.08; 
 
-    // Filter silently from the ref
-    const targetFleet = fleetRef.current.filter(v =>
-      v.route_source === 'mapbox_driving' && (selectedCity === 'Semua' || v.city === selectedCity)
-    );
+    // Filter silently from the ref: ALL active vehicles in the selected city are animated
+    const normSelected = normalizeRegionName(selectedCity);
+    const targetFleet = fleetRef.current.filter(v => {
+      if (selectedCity !== 'Semua') {
+        const normCity = normalizeRegionName(v.city);
+        if (normCity !== normSelected) return false;
+      }
+      return v.status !== 'offline';
+    });
     
     if (targetFleet.length === 0) {
       // Immediate visual clear if fleet is empty
