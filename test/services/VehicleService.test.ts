@@ -242,4 +242,42 @@ describe('VehicleService', () => {
       expect(useVehicleStore.getState().hasDemoData).toBe(false);
     });
   });
+
+  describe('seedSampleData', () => {
+    it('seeds sample vehicles and handles database gracefully without hanging', async () => {
+      useVehicleStore.setState({ vehicles: [], hasDemoData: false });
+      const mockInsert = vi.fn().mockReturnThis();
+      const mockSelect = vi.fn().mockResolvedValue({ data: [], error: null });
+      const mockUpsert = vi.fn().mockResolvedValue({ data: [], error: null });
+      (supabase.from as ReturnType<typeof vi.fn>).mockReturnValue({
+        insert: mockInsert,
+        select: mockSelect,
+        upsert: mockUpsert,
+      });
+
+      const res = await VehicleService.seedSampleData();
+
+      expect(res.success).toBe(true);
+      expect(useVehicleStore.getState().vehicles.length).toBeGreaterThan(0);
+      expect(useVehicleStore.getState().hasDemoData).toBe(true);
+    });
+
+    it('keeps optimistic vehicles even if Supabase insert times out or throws', async () => {
+      useVehicleStore.setState({ vehicles: [], hasDemoData: false });
+      const mockInsert = vi.fn().mockReturnThis();
+      const mockSelect = vi.fn().mockRejectedValue(new Error('Network failure'));
+      const mockUpsert = vi.fn().mockResolvedValue({ data: [], error: null });
+      (supabase.from as ReturnType<typeof vi.fn>).mockReturnValue({
+        insert: mockInsert,
+        select: mockSelect,
+        upsert: mockUpsert,
+      });
+
+      const res = await VehicleService.seedSampleData();
+
+      expect(res.success).toBe(true);
+      expect(useVehicleStore.getState().vehicles.length).toBeGreaterThan(0);
+      expect(useVehicleStore.getState().hasDemoData).toBe(true);
+    });
+  });
 });

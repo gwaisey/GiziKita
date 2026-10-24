@@ -362,29 +362,36 @@ class VehicleService {
       const optimisticIds = new Set(optimisticVehicles.map((vehicle) => vehicle.id));
       useVehicleStore.setState((state) => ({
         vehicles: [...state.vehicles, ...optimisticVehicles],
+        hasDemoData: true,
         error: null,
       }));
       
-      let data: any[] | null;
+      let data: any[] | null = null;
       try {
-        const insertResult = await supabase.from('vehicles').insert(enrichedVehicles).select();
-        if (insertResult.error) throw insertResult.error;
-        data = insertResult.data;
-      } catch (insertError) {
-        useVehicleStore.setState((state) => ({
-          vehicles: state.vehicles.filter((vehicle) => !optimisticIds.has(vehicle.id)),
-        }));
-        throw insertError;
+        // Attempt to persist to Supabase with a 4-second safety timeout so the UI never hangs
+        const timeoutPromise = new Promise<{ error: Error }>((_, reject) =>
+          setTimeout(() => reject(new Error('Supabase insert timed out')), 4000)
+        );
+        const insertPromise = supabase.from('vehicles').insert(enrichedVehicles).select();
+        const insertResult = await Promise.race([insertPromise, timeoutPromise]) as any;
+
+        if (insertResult?.error) {
+          console.warn('[SEED] Supabase backend write warning:', insertResult.error.message);
+        } else if (insertResult?.data) {
+          data = insertResult.data;
+        }
+      } catch (insertError: any) {
+        console.warn('[SEED] Supabase persist bypassed or timed out, keeping optimistic demo fleet:', insertError?.message);
       }
       
-      // Inject manually to guarantee instant UI update (bypassing WebSocket lag)
-      if (data) {
+      // Inject confirmed IDs if available
+      if (data && data.length > 0) {
         useVehicleStore.setState(state => {
           const insertedPlates = new Set(data.map((vehicle: any) => vehicle.license_plate));
           const newVehicles = state.vehicles.filter((vehicle) =>
             !optimisticIds.has(vehicle.id) && !insertedPlates.has(vehicle.license_plate)
           );
-          return { vehicles: [...newVehicles, ...(data as Vehicle[])] };
+          return { vehicles: [...newVehicles, ...(data as Vehicle[])], hasDemoData: true };
         });
       }
 
