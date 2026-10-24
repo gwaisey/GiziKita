@@ -1,6 +1,6 @@
 import { supabase } from '@/js/core/SupabaseClient';
 import { useVehicleStore, Vehicle, VehicleStatus, VerifiedDrivingRoute } from '@/js/store/vehicleStore';
-import { resolveSppgLocation } from '@/js/data/indonesia_regions';
+import { resolveSppgLocation, normalizeRegionName } from '@/js/data/indonesia_regions';
 
 // Status metadata: labels, colours, descriptions
 export const VEHICLE_STATUS_META: Record<VehicleStatus, { label: string; color: string; description: string }> = {
@@ -395,21 +395,56 @@ class VehicleService {
         });
       }
 
-      // Fleet visibility is the primary action. Persist supporting map layers
-      // afterwards so schools/hubs/inventory cannot delay the first vehicles.
-      void Promise.allSettled([
-        supabase.from('schools').upsert(Array.from(schoolsToSeed.values()), { onConflict: 'name,province' }),
-        supabase.from('sppg_units').upsert(Array.from(sppgToSeed.values()), { onConflict: 'name,province' }),
-        supabase.from('vehicle_inventory').upsert(assetRegistry, { onConflict: 'license_plate' }),
-      ]).then((results) => {
-        results.forEach((result, index) => {
-          if (result.status === 'rejected') {
-            console.warn(`[SEED] Supporting write ${index + 1} failed:`, result.reason);
-          } else if (result.value.error) {
-            console.warn(`[SEED] Supporting write ${index + 1} failed:`, result.value.error.message);
-          }
-        });
-      });
+// ---------------------------------------------------------------
+// Filter SPPG hubs and schools to only those regions that have at
+// least one vehicle in the newly generated fleet. This prevents
+// empty SPPG markers from being seeded or displayed.
+// ---------------------------------------------------------------
+const activeRegionSet = new Set<string>();
+enrichedVehicles.forEach(v => {
+  if (v.city) {
+    const norm = normalizeRegionName(v.city);
+    activeRegionSet.add(norm);
+  }
+});
+
+// Keep only SPPG entries whose city appears in activeRegionSet
+const filteredSppg = new Map<string, any>();
+sppgToSeed.forEach((hub, key) => {
+  const norm = normalizeRegionName(hub.city);
+  if (activeRegionSet.has(norm)) {
+    filteredSppg.set(key, hub);
+  }
+});
+sppgToSeed.clear();
+filteredSppg.forEach((v, k) => sppgToSeed.set(k, v));
+
+// Keep only schools whose city appears in activeRegionSet
+const filteredSchools = new Map<string, any>();
+schoolsToSeed.forEach((school, key) => {
+  const norm = normalizeRegionName(school.city);
+  if (activeRegionSet.has(norm)) {
+    filteredSchools.set(key, school);
+  }
+});
+schoolsToSeed.clear();
+filteredSchools.forEach((v, k) => schoolsToSeed.set(k, v));
+
+// Fleet visibility is the primary action. Persist supporting map layers
+// afterwards so schools/hubs/inventory cannot delay the first vehicles.
+void Promise.allSettled([
+  supabase.from('schools').upsert(Array.from(schoolsToSeed.values()), { onConflict: 'name,province' }),
+  supabase.from('sppg_units').upsert(Array.from(sppgToSeed.values()), { onConflict: 'name,province' }),
+  supabase.from('vehicle_inventory').upsert(assetRegistry, { onConflict: 'license_plate' }),
+]).then((results) => {
+  results.forEach((result, index) => {
+    if (result.status === 'rejected') {
+      console.warn(`[SEED] Supporting write ${index + 1} failed:`, result.reason);
+    } else if (result.value.error) {
+      console.warn(`[SEED] Supporting write ${index + 1} failed:`, result.value.error.message);
+    }
+  });
+});
 
       return { success: true, message: `${enrichedVehicles.length} kendaraan berhasil disinkronkan.` };
     } catch (err: any) {
