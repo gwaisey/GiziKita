@@ -1,5 +1,5 @@
 import { supabase } from '@/js/core/SupabaseClient';
-import { useVehicleStore, Vehicle, VehicleStatus, VerifiedDrivingRoute } from '@/js/store/vehicleStore';
+import { useVehicleStore, Vehicle, VehicleStatus, VerifiedDrivingRoute, setLocalSimulationActive } from '@/js/store/vehicleStore';
 import { resolveSppgLocation, normalizeRegionName } from '@/js/data/indonesia_regions';
 
 // Status metadata: labels, colours, descriptions
@@ -181,6 +181,17 @@ class VehicleService {
     const activeLng = (vehicle?.status === 'idle' && sppgLoc) ? sppgLoc.lng : snappedStartLng;
     const activeLat = (vehicle?.status === 'idle' && sppgLoc) ? sppgLoc.lat : snappedStartLat;
 
+    // Continuity guarantee: the idle marker sits EXACTLY on the SPPG hub, but Mapbox snaps
+    // the route start to the nearest road. Prepend the hub so the vehicle drives hub -> road
+    // instead of teleporting to the snapped point when the simulation starts.
+    let routeCoordinates: number[][] = route.coordinates;
+    if (vehicle?.status === 'idle' && sppgLoc) {
+      const gap = Math.hypot(snappedStartLng - sppgLoc.lng, snappedStartLat - sppgLoc.lat);
+      if (gap > 0.00005 && gap < 0.02) {
+        routeCoordinates = [[sppgLoc.lng, sppgLoc.lat], ...route.coordinates];
+      }
+    }
+
     // 1. Update Zustand store
     useVehicleStore.setState(state => {
       const newVehicles = state.vehicles.map(v => {
@@ -191,7 +202,7 @@ class VehicleService {
             last_lat: activeLat,
             destination_lng: snappedDestinationLng,
             destination_lat: snappedDestinationLat,
-            route_geometry: route.coordinates,
+            route_geometry: routeCoordinates,
             route_source: 'mapbox_driving' as const,
             route_progress: 0,
           };
@@ -209,7 +220,7 @@ class VehicleService {
       last_lat: activeLat,
       destination_lng: snappedDestinationLng,
       destination_lat: snappedDestinationLat,
-      route_geometry: route.coordinates,
+      route_geometry: routeCoordinates,
       route_source: 'mapbox_driving',
       route_progress: 0,
       updated_at: new Date().toISOString()
@@ -496,11 +507,15 @@ void Promise.allSettled([
     if (this.simulationInterval) return;
     if (!useVehicleStore.getState().vehicles.some(vehicle => vehicle.route_source === 'mapbox_driving')) return;
     console.log('[SIMULATION] Starting real-time tracking engine...');
+    setLocalSimulationActive(true);
     this.simulationInterval = setInterval(() => this.simulateStep(), 1000);
+    // Run the first step immediately so every routed vehicle departs at once
+    void this.simulateStep();
     this.startBackgroundSync();
   }
 
   public stopSimulation() {
+    setLocalSimulationActive(false);
     if (this.simulationInterval) {
       console.log('[SIMULATION] Stopping engine...');
       clearInterval(this.simulationInterval);
@@ -514,12 +529,16 @@ void Promise.allSettled([
       useVehicleStore.setState(state => ({
         vehicles: state.vehicles.map(v => {
           if (ACTIVE_STATUSES.includes(v.status) || v.status === 'idle') {
-            const sppgLoc = resolveSppgLocation(v.city, undefined, {
+            // A routed vehicle's origin (route[0]) IS its hub; otherwise resolve the hub.
+            const origin = v.route_source === 'mapbox_driving' && v.route_geometry && v.route_geometry.length > 0
+              ? v.route_geometry[0]
+              : null;
+            const sppgLoc = origin ? null : resolveSppgLocation(v.city, undefined, {
               vehicleLat: v.last_lat,
               vehicleLng: v.last_lng,
             });
-            const sppgLng = sppgLoc?.lng ?? v.last_lng;
-            const sppgLat = sppgLoc?.lat ?? v.last_lat;
+            const sppgLng = origin ? origin[0] : (sppgLoc?.lng ?? v.last_lng);
+            const sppgLat = origin ? origin[1] : (sppgLoc?.lat ?? v.last_lat);
 
             return {
               ...v,

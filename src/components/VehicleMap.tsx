@@ -46,6 +46,7 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
   
   const [popupInfo, setPopupInfo] = useState<Vehicle | null>(null);
   const [simulationActive, setSimulationActive] = useState(false);
+  const [isPreparingSimulation, setIsPreparingSimulation] = useState(false);
   const [isSeedingDemo, setIsSeedingDemo] = useState(false);
   const [isClearingFleet, setIsClearingFleet] = useState(false);
   const [mapStatus, setMapStatus] = useState<'loading' | 'ready' | 'error'>('loading');
@@ -324,12 +325,14 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
   // --- 60FPS ANIMATION ENGINE (High Performance) ---
   const animationRef = useRef<number>(0);
   const lastUpdateRef = useRef<number>(Date.now());
-  const vehicleStatesRef = useRef<Map<string, { lat: number, lng: number, bearing: number, targetLat: number, targetLng: number, targetBearing: number }>>(new Map());
+  const vehicleStatesRef = useRef<Map<string, { lat: number, lng: number, bearing: number, fromLat: number, fromLng: number, toLat: number, toLng: number, t0: number }>>(new Map());
+  const sppgUnitsRef = useRef<any[]>([]);
+  sppgUnitsRef.current = sppgUnits;
 
   // Shortest path angle interpolation
   const lerpAngle = (a: number, b: number, t: number) => {
     const d = b - a;
-    const delta = ((d + 180) % 360) - 180;
+    const delta = ((((d + 180) % 360) + 360) % 360) - 180;
     return a + delta * t;
   };
 
@@ -337,9 +340,7 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
     const now = Date.now();
     lastUpdateRef.current = now;
 
-    // We interpolate over a ~2s window (the average DB update rate)
-    // To keep it smooth, we use a slightly slower lerp factor
-    const t = 0.08; 
+    // Positions are interpolated at constant velocity between 1 Hz engine ticks (see below).
 
     // Filter silently from the ref: ALL active vehicles in the selected city are animated
     const normSelected = normalizeRegionName(selectedCity);
@@ -365,62 +366,66 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
       let state = vehicleStatesRef.current.get(v.id);
       
       if (!state) {
-        state = { 
-          lat: v.last_lat ?? 0, 
-          lng: v.last_lng ?? 0, 
-          bearing: 0, 
-          targetLat: v.last_lat ?? 0, 
-          targetLng: v.last_lng ?? 0, 
-          targetBearing: 0 
+        const initLat = v.last_lat ?? 0;
+        const initLng = v.last_lng ?? 0;
+        state = {
+          lat: initLat, lng: initLng, bearing: v.bearing ?? 0,
+          fromLat: initLat, fromLng: initLng, toLat: initLat, toLng: initLng, t0: now,
         };
         vehicleStatesRef.current.set(v.id, state);
       }
 
-      // Explicitly tell TS that state is defined now
       const s = state!;
 
-      // Calculate target position from state
       let targetLat = v.last_lat ?? s.lat;
       let targetLng = v.last_lng ?? s.lng;
 
-      // Vehicles in 'idle' (Siaga) must ALWAYS be stationed EXACTLY at their assigned SPPG Hub coordinates when simulation has not started
+      // Idle (Siaga) vehicles are stationed EXACTLY at their hub. For routed vehicles the
+      // route origin IS the hub, which guarantees no jump when the simulation departs.
       if (v.status === 'idle') {
-        const normCity = normalizeRegionName(v.city);
-        const cityVehicles = targetFleet.filter(item => normalizeRegionName(item.city) === normCity);
-        const vehicleIdx = cityVehicles.findIndex(item => item.id === v.id);
-
-        const sppg = resolveSppgLocation(v.city, sppgUnits, {
-          vehicleLat: v.last_lat,
-          vehicleLng: v.last_lng,
-          vehicleIndex: vehicleIdx >= 0 ? vehicleIdx : undefined
-        });
-
-        if (sppg) {
-          targetLng = sppg.lng;
-          targetLat = sppg.lat;
+        const origin = v.route_source === 'mapbox_driving' && v.route_geometry && v.route_geometry.length > 0
+          ? v.route_geometry[0]
+          : null;
+        if (origin) {
+          targetLng = origin[0];
+          targetLat = origin[1];
+        } else {
+          const normCity = normalizeRegionName(v.city);
+          const cityVehicles = targetFleet.filter(item => normalizeRegionName(item.city) === normCity);
+          const vehicleIdx = cityVehicles.findIndex(item => item.id === v.id);
+          const sppg = resolveSppgLocation(v.city, sppgUnitsRef.current, {
+            vehicleLat: v.last_lat,
+            vehicleLng: v.last_lng,
+            vehicleIndex: vehicleIdx >= 0 ? vehicleIdx : undefined
+          });
+          if (sppg) {
+            targetLng = sppg.lng;
+            targetLat = sppg.lat;
+          }
         }
       }
 
-      s.targetLat = targetLat;
-      s.targetLng = targetLng;
-
-      // When vehicle is idle (before simulation starts) or if vehicle state was located away from target (> 500m), snap instantly
-      if (v.status === 'idle' || Math.hypot(s.lat - s.targetLat, s.lng - s.targetLng) > 0.005) {
-        s.lat = s.targetLat;
-        s.lng = s.targetLng;
-      }
-      
-      // Calculate target bearing if moving significantly
-      const dy = s.targetLat - s.lat;
-      const dx = Math.cos(Math.PI/180 * s.lat) * (s.targetLng - s.lng);
-      if (Math.abs(dx) > 0.0001 || Math.abs(dy) > 0.0001) {
-        s.targetBearing = (Math.atan2(dx, dy) * 180 / Math.PI + 360) % 360;
+      // Snap instantly when idle or when the marker is implausibly far from its target
+      if (v.status === 'idle' || Math.hypot(s.lat - targetLat, s.lng - targetLng) > 0.005) {
+        s.lat = targetLat; s.lng = targetLng;
+        s.fromLat = targetLat; s.fromLng = targetLng;
+        s.toLat = targetLat; s.toLng = targetLng;
+        s.t0 = now;
+      } else if (Math.abs(targetLat - s.toLat) > 1e-9 || Math.abs(targetLng - s.toLng) > 1e-9) {
+        // New engine position: glide from where the marker is NOW to it at constant velocity
+        s.fromLat = s.lat; s.fromLng = s.lng;
+        s.toLat = targetLat; s.toLng = targetLng;
+        s.t0 = now;
       }
 
-      // Smooth Glide (Lerp)
-      s.lat += (s.targetLat - s.lat) * t;
-      s.lng += (s.targetLng - s.lng) * t;
-      s.bearing = lerpAngle(s.bearing, s.targetBearing, t * 0.5);
+      const p = Math.min(1, (now - s.t0) / 1000); // engine ticks every 1000 ms
+      s.lat = s.fromLat + (s.toLat - s.fromLat) * p;
+      s.lng = s.fromLng + (s.toLng - s.fromLng) * p;
+
+      // Heading comes from the engine's route-segment bearing (stable); smooth only the wrap-around
+      if (v.status !== 'idle' && v.bearing != null) {
+        s.bearing = lerpAngle(s.bearing, v.bearing, 0.15);
+      }
 
       return {
         type: 'Feature',
@@ -865,21 +870,42 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
     }
   };
 
-  const toggleSimulation = () => {
+  const toggleSimulation = async () => {
+    if (isPreparingSimulation) return;
     if (simulationActive) {
       VehicleService.stopSimulation();
       setSimulationActive(false);
       return;
     }
 
-    if (vehicles.length === 0) return;
-    const newState = !simulationActive;
-    setSimulationActive(newState);
-    if (newState) {
-      VehicleService.startSimulation();
-    } else {
-      VehicleService.stopSimulation();
+    if (useVehicleStore.getState().vehicles.length === 0) return;
+
+    // PREPARE: every vehicle needs a verified road route BEFORE departure, otherwise the
+    // engine skips it and it stays frozen until someone clicks it.
+    setIsPreparingSimulation(true);
+    try {
+      const pending = useVehicleStore.getState().vehicles.filter(v => !hasCurrentRoadRoute(v));
+      const deadline = Date.now() + 25000; // never block the user longer than 25s
+      let cursor = 0;
+      const worker = async () => {
+        while (cursor < pending.length && Date.now() < deadline) {
+          const v = pending[cursor++];
+          try {
+            await applyVerifiedRoute(v);
+          } catch (err) {
+            console.error(`Route prep failed for ${v.license_plate}:`, err);
+          }
+        }
+      };
+      await Promise.all(Array.from({ length: 5 }, worker));
+    } finally {
+      setIsPreparingSimulation(false);
     }
+
+    // Vehicles still unrouted (API limits) depart automatically once the background
+    // route loader finishes them: the engine starts any idle routed vehicle each tick.
+    VehicleService.startSimulation();
+    setSimulationActive(true);
   };
 
   if (!hasMapboxToken) {
@@ -1071,7 +1097,7 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
         <div style={{ display: 'flex', gap: '12px' }}>
           <button
             onClick={toggleSimulation}
-            disabled={vehicles.length === 0 && !simulationActive || isSeedingDemo || isClearingFleet}
+            disabled={vehicles.length === 0 && !simulationActive || isSeedingDemo || isClearingFleet || isPreparingSimulation}
             style={{ 
               padding: '12px 24px', 
               fontSize: '12px', 
@@ -1092,7 +1118,7 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
             }}
           >
             {simulationActive ? <Zap size={16} fill="currentColor" /> : <Zap size={16} />}
-            {simulationActive ? 'Hentikan Monitoring' : 'Mulai Simulasi'}
+            {simulationActive ? 'Hentikan Monitoring' : isPreparingSimulation ? 'Menyiapkan Rute...' : 'Mulai Simulasi'}
           </button>
           
           <button

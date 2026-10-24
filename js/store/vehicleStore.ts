@@ -46,6 +46,12 @@ export interface Vehicle {
 
 let vehicleLoadGeneration = 0;
 
+// While the local simulation engine runs it is the single source of truth for
+// motion fields. Realtime echoes of our own (delayed) batch sync must not rewind them.
+let localSimulationActive = false;
+export const setLocalSimulationActive = (active: boolean) => { localSimulationActive = active; };
+export const isLocalSimulationActive = () => localSimulationActive;
+
 interface VehicleState {
   vehicles: Vehicle[];
   loading: boolean;
@@ -164,6 +170,15 @@ export const useVehicleStore = create<VehicleState>()(
                   ...newVehicle,
                   route_geometry: newVehicle.route_geometry || existingVehicle.route_geometry,
                   route_source: newVehicle.route_source || existingVehicle.route_source,
+                  ...(localSimulationActive ? {
+                    last_lat: existingVehicle.last_lat,
+                    last_lng: existingVehicle.last_lng,
+                    route_progress: existingVehicle.route_progress,
+                    bearing: existingVehicle.bearing,
+                    status: existingVehicle.status,
+                    // keep the locally-built route (it may include the hub connector)
+                    route_geometry: existingVehicle.route_geometry || newVehicle.route_geometry,
+                  } : {}),
                 };
 
                 // Trigger alerts for critical status changes
