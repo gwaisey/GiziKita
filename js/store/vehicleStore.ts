@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
 import { supabase } from '@/js/core/SupabaseClient';
 import NotificationService from '@/js/services/NotificationService';
+import { createFallbackRoute, degDistance, isValidRoute } from '@/js/utils/routing';
 
 
 export type VehicleStatus =
@@ -107,8 +108,30 @@ export const useVehicleStore = create<VehicleState>()(
               const sppgLng = sppgLoc?.lng ?? v.last_lng;
               const sppgLat = sppgLoc?.lat ?? v.last_lat;
 
-              const hasValidStart = v.route_geometry && v.route_geometry.length > 0
-                && (sppgLng == null || sppgLat == null || Math.hypot(v.route_geometry[0][0] - sppgLng, v.route_geometry[0][1] - sppgLat) < 0.005);
+              const hasRoute = isValidRoute(v.route_geometry);
+              const hasHub = sppgLng != null && sppgLat != null;
+              const startsAtHub = hasRoute && (!hasHub
+                || degDistance(v.route_geometry![0], [sppgLng as number, sppgLat as number]) < 0.005);
+              const hasDestination = v.destination_lng != null && v.destination_lat != null
+                && Number.isFinite(v.destination_lng) && Number.isFinite(v.destination_lat);
+
+              let routeGeometry = v.route_geometry ?? null;
+              let routeSource = v.route_source ?? null;
+              if (!startsAtHub && hasHub) {
+                if (hasDestination) {
+                  // Stale / missing route: rebuild one that starts exactly at the hub
+                  // and ends exactly at this vehicle's own school.
+                  routeGeometry = createFallbackRoute(
+                    { lng: sppgLng as number, lat: sppgLat as number },
+                    { lng: v.destination_lng as number, lat: v.destination_lat as number },
+                  );
+                  routeSource = 'demo_unverified';
+                } else if (hasRoute) {
+                  // No destination to rebuild with: connect the hub to the existing route.
+                  routeGeometry = [[sppgLng as number, sppgLat as number], ...v.route_geometry!];
+                  routeSource = 'legacy_unverified';
+                }
+              }
 
               return {
                 ...v,
@@ -116,8 +139,8 @@ export const useVehicleStore = create<VehicleState>()(
                 route_progress: 0,
                 last_lng: sppgLng,
                 last_lat: sppgLat,
-                // Invalidate stale route if it does not originate at regional SPPG Hub
-                route_source: hasValidStart ? v.route_source : ('demo_unverified' as const),
+                route_geometry: routeGeometry,
+                route_source: routeSource,
               };
             }
             return v;

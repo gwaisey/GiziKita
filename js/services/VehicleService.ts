@@ -1,6 +1,7 @@
 import { supabase } from '@/js/core/SupabaseClient';
 import { useVehicleStore, Vehicle, VehicleStatus, VerifiedDrivingRoute, setLocalSimulationActive } from '@/js/store/vehicleStore';
 import { resolveSppgLocation, normalizeRegionName } from '@/js/data/indonesia_regions';
+import { createFallbackRoute, isValidRoute } from '@/js/utils/routing';
 
 // Status metadata: labels, colours, descriptions
 export const VEHICLE_STATUS_META: Record<VehicleStatus, { label: string; color: string; description: string }> = {
@@ -84,37 +85,7 @@ export const CITIES_CONFIG = [
 ];
 
 
-function createFallbackRoute(vehicle: {
-  last_lng: number;
-  last_lat: number;
-  destination_lng: number;
-  destination_lat: number;
-}): number[][] {
-  const p1 = [vehicle.last_lng, vehicle.last_lat];
-  const p4 = [vehicle.destination_lng, vehicle.destination_lat];
-  
-  // Add some perpendicular offset to create a curve/zigzag route (so it's not a straight line)
-  const diffLng = p4[0] - p1[0];
-  const diffLat = p4[1] - p1[1];
-  
-  // Perpendicular offset vector (slightly rotated)
-  const offsetLng = -diffLat * 0.15;
-  const offsetLat = diffLng * 0.15;
-  
-  const p2 = [p1[0] + diffLng * 0.33 + offsetLng, p1[1] + diffLat * 0.33 + offsetLat];
-  const p3 = [p1[0] + diffLng * 0.66 - offsetLng, p1[1] + diffLat * 0.66 - offsetLat];
-  
-  return [p1, p2, p3, p4];
-}
-
-function distanceKm(aLat: number, aLng: number, bLat: number, bLng: number): number {
-  const radians = (degrees: number) => degrees * Math.PI / 180;
-  const dLat = radians(bLat - aLat);
-  const dLng = radians(bLng - aLng);
-  const haversine = Math.sin(dLat / 2) ** 2
-    + Math.cos(radians(aLat)) * Math.cos(radians(bLat)) * Math.sin(dLng / 2) ** 2;
-  return 6371 * 2 * Math.atan2(Math.sqrt(haversine), Math.sqrt(1 - haversine));
-}
+// createFallbackRoute / distanceKm / isValidRoute live in '@/js/utils/routing'.
 
 class VehicleService {
   public fetchingRoutes = new Set<string>();
@@ -177,19 +148,21 @@ class VehicleService {
       vehicleLat: vehicle?.last_lat,
       vehicleLng: vehicle?.last_lng,
     });
-    // When simulation has not started (vehicle is idle), last position remains EXACTLY at SPPG coordinates!
-    const activeLng = (vehicle?.status === 'idle' && sppgLoc) ? sppgLoc.lng : snappedStartLng;
-    const activeLat = (vehicle?.status === 'idle' && sppgLoc) ? sppgLoc.lat : snappedStartLat;
+    // Anchor = where the vehicle physically is right now. An idle vehicle sits exactly on its
+    // SPPG hub; a moving vehicle keeps its current position so swapping in a road-snapped route
+    // never teleports it.
+    const isIdle = vehicle?.status === 'idle';
+    const anchorLng = isIdle && sppgLoc ? sppgLoc.lng : (vehicle?.last_lng ?? snappedStartLng);
+    const anchorLat = isIdle && sppgLoc ? sppgLoc.lat : (vehicle?.last_lat ?? snappedStartLat);
+    const activeLng = anchorLng;
+    const activeLat = anchorLat;
 
-    // Continuity guarantee: the idle marker sits EXACTLY on the SPPG hub, but Mapbox snaps
-    // the route start to the nearest road. Prepend the hub so the vehicle drives hub -> road
-    // instead of teleporting to the snapped point when the simulation starts.
+    // Continuity guarantee: Mapbox snaps the route start to the nearest road. Prepend the anchor
+    // so the vehicle drives anchor -> road instead of jumping to the snapped point.
     let routeCoordinates: number[][] = route.coordinates;
-    if (vehicle?.status === 'idle' && sppgLoc) {
-      const gap = Math.hypot(snappedStartLng - sppgLoc.lng, snappedStartLat - sppgLoc.lat);
-      if (gap > 0.00005 && gap < 0.02) {
-        routeCoordinates = [[sppgLoc.lng, sppgLoc.lat], ...route.coordinates];
-      }
+    const gap = Math.hypot(snappedStartLng - anchorLng, snappedStartLat - anchorLat);
+    if (gap > 0.00005 && gap < 0.02) {
+      routeCoordinates = [[anchorLng, anchorLat], ...route.coordinates];
     }
 
     // 1. Update Zustand store
@@ -347,7 +320,10 @@ class VehicleService {
       
       // Distribute vehicles realistically along their routes
       const enrichedVehicles = tempVehicles.map((v) => {
-        const geometry = createFallbackRoute(v);
+        const geometry = createFallbackRoute(
+          { lng: v.last_lng, lat: v.last_lat },
+          { lng: v.destination_lng, lat: v.destination_lat },
+        );
         
         // --- STATIONARY START: Initialize at exactly 0% (the Hub) ---
         // This ensures vehicles stay at the station until simulation starts
@@ -511,7 +487,10 @@ void Promise.allSettled([
 
   public startSimulation() {
     if (this.simulationInterval) return;
-    if (!useVehicleStore.getState().vehicles.some(vehicle => vehicle.route_geometry && vehicle.route_geometry.length >= 2)) return;
+    // Every vehicle with a route OR a destination (we can build a fallback route) can move.
+    if (!useVehicleStore.getState().vehicles.some(v =>
+      isValidRoute(v.route_geometry) || (v.destination_lat != null && v.destination_lng != null)
+    )) return;
     console.log('[SIMULATION] Starting real-time tracking engine...');
     setLocalSimulationActive(true);
     this.simulationInterval = setInterval(() => this.simulateStep(), 1000);
@@ -637,127 +616,127 @@ void Promise.allSettled([
     this.isSimulating = true;
 
     try {
-      const stateUpdates: any[] = [];
+      const stateUpdates = new Map<string, any>();
       const now = Date.now();
+      const MOVE_PER_TICK = 0.0003; // degrees per 1s tick (~33 m)
+      const hashOf = (id: string) => Math.abs(id.split('').reduce((acc, c) => acc + c.charCodeAt(0), 0));
 
       for (const v of vehicles) {
-        if (!v.route_geometry || v.route_geometry.length < 2) continue;
         if (v.status === 'offline' || v.status === 'maintenance') continue;
 
+        // --- 1. GUARANTEE A VALID, PER-VEHICLE ROUTE ---------------------------------
+        // Every vehicle must be able to follow ITS OWN route. If it has none (or a corrupt
+        // one), build a fallback from its current position to its own destination.
+        let geometry: number[][] | null | undefined = v.route_geometry;
+        let routeFix: { route_geometry: number[][]; route_source: 'demo_unverified' } | null = null;
+        let newProgress = Number.isFinite(v.route_progress as number) ? (v.route_progress as number) : 0;
+
+        if (!isValidRoute(geometry)) {
+          if (v.last_lat == null || v.last_lng == null
+            || v.destination_lat == null || v.destination_lng == null) continue;
+          geometry = createFallbackRoute(
+            { lng: v.last_lng, lat: v.last_lat },
+            { lng: v.destination_lng, lat: v.destination_lat },
+          );
+          routeFix = { route_geometry: geometry, route_source: 'demo_unverified' };
+          newProgress = 0;
+        }
+        const route = geometry as number[][];
+        const lastIndex = route.length - 1;
+        newProgress = Math.min(Math.max(newProgress, 0), lastIndex);
+
         let newStatus = v.status;
-        let newProgress = v.route_progress ?? 0;
         let newBearing = v.bearing ?? 0;
 
+        // --- 2. UNLOADING DWELL ------------------------------------------------------
         if (newStatus === 'unloading') {
-          const distanceToSchool = v.destination_lat == null || v.destination_lng == null
-            ? Number.POSITIVE_INFINITY
-            : distanceKm(v.last_lat ?? 0, v.last_lng ?? 0, v.destination_lat, v.destination_lng);
-          if (distanceToSchool > 0.02) {
-            newStatus = 'en_route';
+          let startedAt = this.unloadingStartedAt.get(v.id);
+          if (!startedAt) {
+            startedAt = now;
+            this.unloadingStartedAt.set(v.id, startedAt);
+            this.dwellDurations.set(v.id, 15000 + (hashOf(v.id) % 11) * 1000); // 15s to 25s
+          }
+          const dwell = this.dwellDurations.get(v.id) ?? 15000;
+          if (now - startedAt >= dwell) {
+            // Unloading complete: return to SPPG Hub in 'idle' (Siaga)
+            newStatus = 'idle';
+            newProgress = 0;
+            newBearing = 0;
             this.unloadingStartedAt.delete(v.id);
             this.dwellDurations.delete(v.id);
-          } else {
-            let startedAt = this.unloadingStartedAt.get(v.id);
-            if (!startedAt) {
-              startedAt = now;
-              this.unloadingStartedAt.set(v.id, startedAt);
-              const hash = Math.abs(v.id.split('').reduce((acc, c) => acc + c.charCodeAt(0), 0));
-              this.dwellDurations.set(v.id, 15000 + (hash % 11) * 1000); // 15s to 25s
-            }
-            const dwell = this.dwellDurations.get(v.id) ?? 15000;
-            if (now - startedAt >= dwell) {
-              // Unloading complete! Return vehicle to SPPG Hub in 'idle' (Siaga)
-              newStatus = 'idle';
-              newProgress = 0;
-              newBearing = 0;
-              this.unloadingStartedAt.delete(v.id);
-              this.dwellDurations.delete(v.id);
-              this.idleStartedAt.set(v.id, now);
-              const hash = Math.abs(v.id.split('').reduce((acc, c) => acc + c.charCodeAt(0), 0));
-              this.idleDurations.set(v.id, 8000 + (hash % 8) * 1000); // 8s to 15s
-            }
+            this.idleStartedAt.set(v.id, now);
+            this.idleDurations.set(v.id, 8000 + (hashOf(v.id) % 8) * 1000); // 8s to 15s
           }
         }
 
-        // Handle idle / loading / turnaround
+        // --- 3. IDLE / TURNAROUND ----------------------------------------------------
         if (newStatus === 'idle') {
           const startedAt = this.idleStartedAt.get(v.id);
           if (startedAt) {
             const turnaround = this.idleDurations.get(v.id) ?? 8000;
             if (now - startedAt >= turnaround) {
-              // Turnaround complete, start next journey
               newStatus = 'en_route';
               newProgress = 0;
               this.idleStartedAt.delete(v.id);
               this.idleDurations.delete(v.id);
             }
           } else {
-            // First tick of simulation for an idle vehicle: depart on delivery journey
+            // First tick of the simulation: EVERY idle vehicle departs at once
             newStatus = 'en_route';
             newProgress = 0;
           }
-        } else if (v.status === 'delayed' || v.status === 'loading') {
-          newStatus = 'en_route'; 
+        } else if (newStatus === 'delayed' || newStatus === 'loading') {
+          newStatus = 'en_route';
           newProgress = 0;
         }
 
-        if (newStatus === 'en_route' && v.route_geometry && v.route_geometry.length > 0) {
-          let distanceToMove = 0.0003; // Movement speed
-          
-          while (distanceToMove > 0) {
+        // --- 4. MOVEMENT ALONG OWN ROUTE ---------------------------------------------
+        if (newStatus === 'en_route') {
+          let distanceToMove = MOVE_PER_TICK;
+          let guard = route.length + 4; // hard cap: can never spin forever
+
+          while (distanceToMove > 0 && guard-- > 0) {
             const floorIdx = Math.floor(newProgress);
             const ceilIdx = floorIdx + 1;
-            const currentPosition = this.getPositionAtProgress(v.route_geometry, newProgress);
-            
-            if (ceilIdx >= v.route_geometry.length) {
-              const destinationLat = v.destination_lat;
-              const destinationLng = v.destination_lng;
-              const distanceToDestination = destinationLat == null || destinationLng == null
-                ? Number.POSITIVE_INFINITY
-                : distanceKm(currentPosition.lat, currentPosition.lng, destinationLat, destinationLng);
-              // Arrival must be based on physical proximity, not merely the
-              // final index in a stale/incorrect route polyline.
-              if (distanceToDestination <= 0.02) {
-                newStatus = 'unloading';
-                this.unloadingStartedAt.set(v.id, now);
-                const hash = Math.abs(v.id.split('').reduce((acc, c) => acc + c.charCodeAt(0), 0));
-                this.dwellDurations.set(v.id, 15000 + (hash % 11) * 1000);
-              } else {
-                newStatus = 'en_route';
-              }
+
+            if (ceilIdx > lastIndex) {
+              // Reached the end of the vehicle's own route == arrived at its school.
+              newProgress = lastIndex;
+              newStatus = 'unloading';
+              this.unloadingStartedAt.set(v.id, now);
+              this.dwellDurations.set(v.id, 15000 + (hashOf(v.id) % 11) * 1000);
               break;
             }
-            
-            const start = v.route_geometry[floorIdx];
-            const end = v.route_geometry[ceilIdx];
-            
-            const currentSubLat = start[1] + (end[1] - start[1]) * (newProgress - floorIdx);
-            const currentSubLng = start[0] + (end[0] - start[0]) * (newProgress - floorIdx);
-            
-            const dLat = end[1] - currentSubLat;
-            const dLng = end[0] - currentSubLng;
-            const segmentDist = Math.sqrt(dLat * dLat + dLng * dLng);
-            
-            if (segmentDist <= 0.0000001) {
-              newProgress = ceilIdx;
-              continue;
-            }
 
-            if (distanceToMove >= segmentDist) {
+            const start = route[floorIdx];
+            const end = route[ceilIdx];
+            const frac = newProgress - floorIdx;
+            const subLat = start[1] + (end[1] - start[1]) * frac;
+            const subLng = start[0] + (end[0] - start[0]) * frac;
+            const segmentDist = Math.hypot(end[0] - subLng, end[1] - subLat);
+
+            if (segmentDist <= 0.0000001 || distanceToMove >= segmentDist) {
               distanceToMove -= segmentDist;
               newProgress = ceilIdx;
             } else {
-              const ratio = distanceToMove / segmentDist;
-              newProgress += (1 - (newProgress - floorIdx)) * ratio;
+              newProgress += (1 - frac) * (distanceToMove / segmentDist);
               distanceToMove = 0;
             }
           }
 
-          // Calculate Bearing
-          const floorIdx = Math.min(Math.floor(newProgress), v.route_geometry.length - 2);
-          const p1 = v.route_geometry[floorIdx];
-          const p2 = v.route_geometry[floorIdx + 1];
-          if (p1 && p2) {
+          // Arrived exactly on the last point with budget left over -> handle arrival now
+          if (newStatus === 'en_route' && newProgress >= lastIndex) {
+            newProgress = lastIndex;
+            newStatus = 'unloading';
+            this.unloadingStartedAt.set(v.id, now);
+            this.dwellDurations.set(v.id, 15000 + (hashOf(v.id) % 11) * 1000);
+          }
+
+          // Bearing
+          const bIdx = Math.min(Math.floor(newProgress), lastIndex - 1);
+          const p1 = route[bIdx];
+          const p2 = route[bIdx + 1];
+          if (p1 && p2 && (p1[0] !== p2[0] || p1[1] !== p2[1])) {
             const bY = Math.sin((p2[0] - p1[0]) * Math.PI / 180) * Math.cos(p2[1] * Math.PI / 180);
             const bX = Math.cos(p1[1] * Math.PI / 180) * Math.sin(p2[1] * Math.PI / 180) -
                        Math.sin(p1[1] * Math.PI / 180) * Math.cos(p2[1] * Math.PI / 180) * Math.cos((p2[0] - p1[0]) * Math.PI / 180);
@@ -765,10 +744,12 @@ void Promise.allSettled([
           }
         }
 
-        const finalPos = this.getPositionAtProgress(v.route_geometry || [], newProgress);
+        const finalPos = this.getPositionAtProgress(route, newProgress);
 
-        if (newStatus !== v.status || Math.abs(newProgress - (v.route_progress ?? 0)) > 0.000001 || Math.abs(newBearing - (v.bearing ?? 0)) > 0.1) {
-          const updatedData = {
+        if (routeFix || newStatus !== v.status
+          || Math.abs(newProgress - (v.route_progress ?? 0)) > 0.000001
+          || Math.abs(newBearing - (v.bearing ?? 0)) > 0.1) {
+          const updatedData: any = {
             id: v.id,
             license_plate: v.license_plate, // Required for Supabase upsert constraints
             last_lat: finalPos.lat,
@@ -777,27 +758,24 @@ void Promise.allSettled([
             route_progress: newProgress,
             bearing: newBearing,
             updated_at: new Date().toISOString(),
+            ...(routeFix ?? {}),
           };
-          
-          stateUpdates.push(updatedData);
-          
-          // ADD TO SYNC BUFFER (Only essential fields to minimize payload)
+
+          stateUpdates.set(v.id, updatedData);
+
+          // ADD TO SYNC BUFFER
           this.queueUpdate(v.id, updatedData);
         }
       }
 
-      // 1. OPTIMISTIC UI UPDATE: Immediate 1Hz refresh for local client
-      if (stateUpdates.length > 0) {
-        useVehicleStore.setState(state => {
-          const newVehicles = [...state.vehicles];
-          stateUpdates.forEach(update => {
-            const idx = newVehicles.findIndex(veh => veh.id === update.id);
-            if (idx !== -1) {
-              newVehicles[idx] = { ...newVehicles[idx], ...update };
-            }
-          });
-          return { vehicles: newVehicles };
-        });
+      // OPTIMISTIC UI UPDATE: single O(n) pass at 1Hz
+      if (stateUpdates.size > 0) {
+        useVehicleStore.setState(state => ({
+          vehicles: state.vehicles.map(veh => {
+            const update = stateUpdates.get(veh.id);
+            return update ? { ...veh, ...update } : veh;
+          }),
+        }));
       }
     } catch (err) {
       console.error('[SIMULATION CRITICAL ERROR]', err);
@@ -805,6 +783,7 @@ void Promise.allSettled([
       this.isSimulating = false;
     }
   }
+
 }
 
 export default new VehicleService();

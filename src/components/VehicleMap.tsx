@@ -99,45 +99,57 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
       && Math.abs(endpoint[1] - vehicle.destination_lat) < 0.001;
     if (!matchesDestination) return false;
 
-    // Condition 2: Route origin MUST start at the vehicle's assigned regional SPPG Hub (< 500m)
-    const normCity = normalizeRegionName(vehicle.city);
-    const cityVehicles = vehicles.filter(item => normalizeRegionName(item.city) === normCity);
-    const vehicleIdx = cityVehicles.findIndex(item => item.id === vehicle.id);
+    // Condition 2: for a vehicle still parked at its hub, the route MUST start at the hub (< 500m).
+    // A moving vehicle legitimately has a route that starts where it was when it was re-routed.
+    if (vehicle.status === 'idle') {
+      const liveVehicles = useVehicleStore.getState().vehicles;
+      const normCity = normalizeRegionName(vehicle.city);
+      const cityVehicles = liveVehicles.filter(item => normalizeRegionName(item.city) === normCity);
+      const vehicleIdx = cityVehicles.findIndex(item => item.id === vehicle.id);
 
-    const sppg = resolveSppgLocation(vehicle.city, sppgUnits, {
-      vehicleLat: vehicle.last_lat,
-      vehicleLng: vehicle.last_lng,
-      vehicleIndex: vehicleIdx >= 0 ? vehicleIdx : undefined
-    });
+      const sppg = resolveSppgLocation(vehicle.city, sppgUnits, {
+        vehicleLat: vehicle.last_lat,
+        vehicleLng: vehicle.last_lng,
+        vehicleIndex: vehicleIdx >= 0 ? vehicleIdx : undefined
+      });
 
-    if (sppg) {
-      const startPoint = route[0];
-      const distToSppg = Math.hypot(startPoint[0] - sppg.lng, startPoint[1] - sppg.lat);
-      if (distToSppg > 0.005) {
-        // Route origin does not match regional SPPG Hub — invalidate to force re-routing from SPPG!
-        return false;
+      if (sppg) {
+        const startPoint = route[0];
+        const distToSppg = Math.hypot(startPoint[0] - sppg.lng, startPoint[1] - sppg.lat);
+        if (distToSppg > 0.005) return false;
       }
     }
 
     return true;
   }, [sppgUnits]);
 
-  const applyVerifiedRoute = useCallback(async (vehicle: Vehicle) => {
+  const applyVerifiedRoute = useCallback(async (staleVehicle: Vehicle) => {
+    // Always work from the LIVE vehicle (the simulation mutates it every second).
+    const vehicle = useVehicleStore.getState().vehicles.find(v => v.id === staleVehicle.id) ?? staleVehicle;
     if (vehicle.destination_lng == null || vehicle.destination_lat == null) return false;
+    if (vehicle.status === 'unloading') return false; // already at the school
 
-    // A vehicle's journey always begins at its assigned regional SPPG Hub
-    const normCity = normalizeRegionName(vehicle.city);
-    const cityVehicles = vehicles.filter(item => normalizeRegionName(item.city) === normCity);
-    const vehicleIdx = cityVehicles.findIndex(item => item.id === vehicle.id);
+    let startLng: number | null | undefined;
+    let startLat: number | null | undefined;
+    if (vehicle.status === 'idle') {
+      // Parked: the journey begins at the assigned regional SPPG Hub
+      const liveVehicles = useVehicleStore.getState().vehicles;
+      const normCity = normalizeRegionName(vehicle.city);
+      const cityVehicles = liveVehicles.filter(item => normalizeRegionName(item.city) === normCity);
+      const vehicleIdx = cityVehicles.findIndex(item => item.id === vehicle.id);
 
-    const sppg = resolveSppgLocation(vehicle.city, sppgUnits, {
-      vehicleLat: vehicle.last_lat,
-      vehicleLng: vehicle.last_lng,
-      vehicleIndex: vehicleIdx >= 0 ? vehicleIdx : undefined
-    });
-
-    const startLng = sppg?.lng ?? (vehicle.route_geometry?.[0]?.[0] ?? vehicle.last_lng);
-    const startLat = sppg?.lat ?? (vehicle.route_geometry?.[0]?.[1] ?? vehicle.last_lat);
+      const sppg = resolveSppgLocation(vehicle.city, sppgUnits, {
+        vehicleLat: vehicle.last_lat,
+        vehicleLng: vehicle.last_lng,
+        vehicleIndex: vehicleIdx >= 0 ? vehicleIdx : undefined
+      });
+      startLng = sppg?.lng ?? (vehicle.route_geometry?.[0]?.[0] ?? vehicle.last_lng);
+      startLat = sppg?.lat ?? (vehicle.route_geometry?.[0]?.[1] ?? vehicle.last_lat);
+    } else {
+      // Already moving: continue from where the vehicle is right now (no teleporting)
+      startLng = vehicle.last_lng;
+      startLat = vehicle.last_lat;
+    }
     if (startLng == null || startLat == null) return false;
 
     let activeRoute = await VehicleService.fetchMapboxRoute(
