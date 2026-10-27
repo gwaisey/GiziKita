@@ -46,7 +46,6 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
   
   const [popupInfo, setPopupInfo] = useState<Vehicle | null>(null);
   const [simulationActive, setSimulationActive] = useState(false);
-  const [isPreparingSimulation, setIsPreparingSimulation] = useState(false);
   const [isSeedingDemo, setIsSeedingDemo] = useState(false);
   const [isClearingFleet, setIsClearingFleet] = useState(false);
   const [mapStatus, setMapStatus] = useState<'loading' | 'ready' | 'error'>('loading');
@@ -383,7 +382,7 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
       // Idle (Siaga) vehicles are stationed EXACTLY at their hub. For routed vehicles the
       // route origin IS the hub, which guarantees no jump when the simulation departs.
       if (v.status === 'idle') {
-        const origin = v.route_source === 'mapbox_driving' && v.route_geometry && v.route_geometry.length > 0
+        const origin = v.route_geometry && v.route_geometry.length > 0
           ? v.route_geometry[0]
           : null;
         if (origin) {
@@ -718,7 +717,7 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
     
     if (vehicle.last_lng === null || vehicle.last_lat === null) return null;
 
-    if (vehicle.route_source !== 'mapbox_driving') return null;
+    if (!vehicle.route_geometry || vehicle.route_geometry.length < 2) return null;
 
     let route = vehicle.route_geometry?.filter(coord => Array.isArray(coord) && coord.length >= 2) ?? [];
 
@@ -871,41 +870,38 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
   };
 
   const toggleSimulation = async () => {
-    if (isPreparingSimulation) return;
     if (simulationActive) {
       VehicleService.stopSimulation();
       setSimulationActive(false);
       return;
     }
 
-    if (useVehicleStore.getState().vehicles.length === 0) return;
+    const currentVehicles = useVehicleStore.getState().vehicles;
+    if (currentVehicles.length === 0) return;
 
-    // PREPARE: every vehicle needs a verified road route BEFORE departure, otherwise the
-    // engine skips it and it stays frozen until someone clicks it.
-    setIsPreparingSimulation(true);
-    try {
-      const pending = useVehicleStore.getState().vehicles.filter(v => !hasCurrentRoadRoute(v));
-      const deadline = Date.now() + 25000; // never block the user longer than 25s
-      let cursor = 0;
-      const worker = async () => {
-        while (cursor < pending.length && Date.now() < deadline) {
-          const v = pending[cursor++];
-          try {
-            await applyVerifiedRoute(v);
-          } catch (err) {
-            console.error(`Route prep failed for ${v.license_plate}:`, err);
-          }
-        }
-      };
-      await Promise.all(Array.from({ length: 5 }, worker));
-    } finally {
-      setIsPreparingSimulation(false);
-    }
-
-    // Vehicles still unrouted (API limits) depart automatically once the background
-    // route loader finishes them: the engine starts any idle routed vehicle each tick.
+    // Start simulation immediately so all vehicles depart without any blocking wait!
     VehicleService.startSimulation();
     setSimulationActive(true);
+
+    // Progressively upgrade unverified routes with Mapbox road-snapped driving directions in the background
+    const unverified = currentVehicles.filter(v => v.route_source !== 'mapbox_driving');
+    if (unverified.length > 0) {
+      const normCity = normalizeRegionName(selectedCity);
+      const prioritized = [
+        ...unverified.filter(v => selectedCity !== 'Semua' && normalizeRegionName(v.city) === normCity),
+        ...unverified.filter(v => selectedCity === 'Semua' || normalizeRegionName(v.city) !== normCity),
+      ];
+
+      void (async () => {
+        const BATCH_SIZE = 4;
+        for (let i = 0; i < prioritized.length; i += BATCH_SIZE) {
+          if (!useVehicleStore.getState().vehicles.length) break;
+          const batch = prioritized.slice(i, i + BATCH_SIZE);
+          await Promise.all(batch.map(v => applyVerifiedRoute(v).catch(() => false)));
+          await new Promise(r => setTimeout(r, 100));
+        }
+      })();
+    }
   };
 
   if (!hasMapboxToken) {
@@ -1004,7 +1000,7 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
             </Source>
           )}
 
-          {activeVehicle?.route_source === 'mapbox_driving' &&
+          {activeVehicle &&
             activeVehicle.destination_lng != null &&
             activeVehicle.destination_lat != null && (
             <Marker
@@ -1097,7 +1093,7 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
         <div style={{ display: 'flex', gap: '12px' }}>
           <button
             onClick={toggleSimulation}
-            disabled={vehicles.length === 0 && !simulationActive || isSeedingDemo || isClearingFleet || isPreparingSimulation}
+            disabled={vehicles.length === 0 && !simulationActive || isSeedingDemo || isClearingFleet}
             style={{ 
               padding: '12px 24px', 
               fontSize: '12px', 
@@ -1118,7 +1114,7 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
             }}
           >
             {simulationActive ? <Zap size={16} fill="currentColor" /> : <Zap size={16} />}
-            {simulationActive ? 'Hentikan Monitoring' : isPreparingSimulation ? 'Menyiapkan Rute...' : 'Mulai Simulasi'}
+            {simulationActive ? 'Hentikan Monitoring' : 'Mulai Simulasi'}
           </button>
           
           <button

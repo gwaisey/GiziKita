@@ -511,7 +511,7 @@ void Promise.allSettled([
 
   public startSimulation() {
     if (this.simulationInterval) return;
-    if (!useVehicleStore.getState().vehicles.some(vehicle => vehicle.route_source === 'mapbox_driving')) return;
+    if (!useVehicleStore.getState().vehicles.some(vehicle => vehicle.route_geometry && vehicle.route_geometry.length >= 2)) return;
     console.log('[SIMULATION] Starting real-time tracking engine...');
     setLocalSimulationActive(true);
     this.simulationInterval = setInterval(() => this.simulateStep(), 1000);
@@ -542,7 +542,7 @@ void Promise.allSettled([
         vehicles: state.vehicles.map(v => {
           if (ACTIVE_STATUSES.includes(v.status) || v.status === 'idle') {
             // A routed vehicle's origin (route[0]) IS its hub; otherwise resolve the hub.
-            const origin = v.route_source === 'mapbox_driving' && v.route_geometry && v.route_geometry.length > 0
+            const origin = v.route_geometry && v.route_geometry.length > 0
               ? v.route_geometry[0]
               : null;
             const sppgLoc = origin ? null : resolveSppgLocation(v.city, undefined, {
@@ -641,8 +641,7 @@ void Promise.allSettled([
       const now = Date.now();
 
       for (const v of vehicles) {
-        // Never simulate along generated/legacy polylines that may cross water.
-        if (v.route_source !== 'mapbox_driving' || !v.route_geometry || v.route_geometry.length < 2) continue;
+        if (!v.route_geometry || v.route_geometry.length < 2) continue;
         if (v.status === 'offline' || v.status === 'maintenance') continue;
 
         let newStatus = v.status;
