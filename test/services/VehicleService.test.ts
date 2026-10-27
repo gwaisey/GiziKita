@@ -167,6 +167,117 @@ describe('VehicleService', () => {
 
       expect(useVehicleStore.getState().vehicles[0].status).toBe('en_route');
     });
+
+    it('maintains unloading status while within destination proximity during dwell time', async () => {
+      const vehicle: Vehicle = {
+        id: 'dwell-check',
+        license_plate: 'DH 5000 BGN',
+        driver_name: 'Demo Driver',
+        status: 'unloading',
+        city: 'Sabu Raijua',
+        last_lat: -10.5,
+        last_lng: 121.95,
+        destination_lat: -10.5,
+        destination_lng: 121.95,
+        route_geometry: [[121.85, -10.5], [121.95, -10.5]],
+        route_source: 'mapbox_driving',
+        route_progress: 1,
+        bearing: 90,
+        updated_at: new Date().toISOString(),
+      };
+      useVehicleStore.setState({ vehicles: [vehicle] });
+
+      await VehicleService.simulateStep();
+
+      // Dwell duration is 15-25s, so on immediate step it must stay 'unloading'
+      expect(useVehicleStore.getState().vehicles[0].status).toBe('unloading');
+    });
+
+    it('transitions unloading vehicle to idle at hub after dwell time expires', async () => {
+      const vehicle: Vehicle = {
+        id: 'dwell-expire-check',
+        license_plate: 'DH 5001 BGN',
+        driver_name: 'Demo Driver',
+        status: 'unloading',
+        city: 'Sabu Raijua',
+        last_lat: -10.5,
+        last_lng: 121.95,
+        destination_lat: -10.5,
+        destination_lng: 121.95,
+        route_geometry: [[121.85, -10.5], [121.95, -10.5]],
+        route_source: 'mapbox_driving',
+        route_progress: 1,
+        bearing: 90,
+        updated_at: new Date().toISOString(),
+      };
+      useVehicleStore.setState({ vehicles: [vehicle] });
+
+      // First step registers the dwell timer
+      await VehicleService.simulateStep();
+      expect(useVehicleStore.getState().vehicles[0].status).toBe('unloading');
+
+      // Advance Date.now past the max dwell time (e.g. +35 seconds)
+      const originalNow = Date.now;
+      try {
+        Date.now = () => originalNow() + 35000;
+        await VehicleService.simulateStep();
+
+        const updated = useVehicleStore.getState().vehicles[0];
+        expect(updated.status).toBe('idle');
+        expect(updated.route_progress).toBe(0);
+        expect(updated.last_lng).toBe(121.85); // Resets to SPPG Hub (route[0])
+        expect(updated.last_lat).toBe(-10.5);
+      } finally {
+        Date.now = originalNow;
+      }
+    });
+
+    it('holds idle turnaround vehicle before departing on next route', async () => {
+      const vehicle: Vehicle = {
+        id: 'turnaround-check',
+        license_plate: 'DH 5002 BGN',
+        driver_name: 'Demo Driver',
+        status: 'unloading',
+        city: 'Sabu Raijua',
+        last_lat: -10.5,
+        last_lng: 121.95,
+        destination_lat: -10.5,
+        destination_lng: 121.95,
+        route_geometry: [[121.85, -10.5], [121.95, -10.5]],
+        route_source: 'mapbox_driving',
+        route_progress: 1,
+        bearing: 90,
+        updated_at: new Date().toISOString(),
+      };
+      useVehicleStore.setState({ vehicles: [vehicle] });
+
+      const originalNow = Date.now;
+      let simulatedTime = originalNow();
+      Date.now = () => simulatedTime;
+
+      try {
+        // Step 1: registers unloading
+        await VehicleService.simulateStep();
+        expect(useVehicleStore.getState().vehicles[0].status).toBe('unloading');
+
+        // Step 2: advance +35s, unloading finishes, vehicle transitions to idle
+        simulatedTime += 35000;
+        await VehicleService.simulateStep();
+        expect(useVehicleStore.getState().vehicles[0].status).toBe('idle');
+
+        // Step 3: advance only +2s, vehicle must still be idling (turnaround takes 8-15s)
+        simulatedTime += 2000;
+        await VehicleService.simulateStep();
+        expect(useVehicleStore.getState().vehicles[0].status).toBe('idle');
+
+        // Step 4: advance +20s, turnaround finishes, vehicle departs en_route
+        simulatedTime += 20000;
+        await VehicleService.simulateStep();
+        expect(useVehicleStore.getState().vehicles[0].status).toBe('en_route');
+      } finally {
+        Date.now = originalNow;
+      }
+    });
   });
 
   describe('clearDemoData', () => {

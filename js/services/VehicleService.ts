@@ -503,6 +503,12 @@ void Promise.allSettled([
   private syncInterval: ReturnType<typeof setInterval> | null = null;
   private simulationInterval: ReturnType<typeof setInterval> | null = null;
 
+  // Active state timers for realistic simulation lifecycle
+  private unloadingStartedAt = new Map<string, number>();
+  private dwellDurations = new Map<string, number>();
+  private idleStartedAt = new Map<string, number>();
+  private idleDurations = new Map<string, number>();
+
   public startSimulation() {
     if (this.simulationInterval) return;
     if (!useVehicleStore.getState().vehicles.some(vehicle => vehicle.route_source === 'mapbox_driving')) return;
@@ -522,6 +528,12 @@ void Promise.allSettled([
       this.simulationInterval = null;
     }
     this.stopBackgroundSync();
+
+    // Reset internal simulation timers
+    this.unloadingStartedAt.clear();
+    this.dwellDurations.clear();
+    this.idleStartedAt.clear();
+    this.idleDurations.clear();
 
     // Reset all vehicles back to idle (Siaga) stationed at their regional SPPG Hub
     const ACTIVE_STATUSES: VehicleStatus[] = ['en_route', 'delayed', 'unloading', 'loading'];
@@ -626,6 +638,7 @@ void Promise.allSettled([
 
     try {
       const stateUpdates: any[] = [];
+      const now = Date.now();
 
       for (const v of vehicles) {
         // Never simulate along generated/legacy polylines that may cross water.
@@ -640,11 +653,51 @@ void Promise.allSettled([
           const distanceToSchool = v.destination_lat == null || v.destination_lng == null
             ? Number.POSITIVE_INFINITY
             : distanceKm(v.last_lat ?? 0, v.last_lng ?? 0, v.destination_lat, v.destination_lng);
-          if (distanceToSchool > 0.02) newStatus = 'en_route';
+          if (distanceToSchool > 0.02) {
+            newStatus = 'en_route';
+            this.unloadingStartedAt.delete(v.id);
+            this.dwellDurations.delete(v.id);
+          } else {
+            let startedAt = this.unloadingStartedAt.get(v.id);
+            if (!startedAt) {
+              startedAt = now;
+              this.unloadingStartedAt.set(v.id, startedAt);
+              const hash = Math.abs(v.id.split('').reduce((acc, c) => acc + c.charCodeAt(0), 0));
+              this.dwellDurations.set(v.id, 15000 + (hash % 11) * 1000); // 15s to 25s
+            }
+            const dwell = this.dwellDurations.get(v.id) ?? 15000;
+            if (now - startedAt >= dwell) {
+              // Unloading complete! Return vehicle to SPPG Hub in 'idle' (Siaga)
+              newStatus = 'idle';
+              newProgress = 0;
+              newBearing = 0;
+              this.unloadingStartedAt.delete(v.id);
+              this.dwellDurations.delete(v.id);
+              this.idleStartedAt.set(v.id, now);
+              const hash = Math.abs(v.id.split('').reduce((acc, c) => acc + c.charCodeAt(0), 0));
+              this.idleDurations.set(v.id, 8000 + (hash % 8) * 1000); // 8s to 15s
+            }
+          }
         }
 
-        // Auto-start journey if idle/loading
-        if (v.status === 'idle' || v.status === 'delayed' || v.status === 'loading') {
+        // Handle idle / loading / turnaround
+        if (newStatus === 'idle') {
+          const startedAt = this.idleStartedAt.get(v.id);
+          if (startedAt) {
+            const turnaround = this.idleDurations.get(v.id) ?? 8000;
+            if (now - startedAt >= turnaround) {
+              // Turnaround complete, start next journey
+              newStatus = 'en_route';
+              newProgress = 0;
+              this.idleStartedAt.delete(v.id);
+              this.idleDurations.delete(v.id);
+            }
+          } else {
+            // First tick of simulation for an idle vehicle: depart on delivery journey
+            newStatus = 'en_route';
+            newProgress = 0;
+          }
+        } else if (v.status === 'delayed' || v.status === 'loading') {
           newStatus = 'en_route'; 
           newProgress = 0;
         }
@@ -665,7 +718,14 @@ void Promise.allSettled([
                 : distanceKm(currentPosition.lat, currentPosition.lng, destinationLat, destinationLng);
               // Arrival must be based on physical proximity, not merely the
               // final index in a stale/incorrect route polyline.
-              newStatus = distanceToDestination <= 0.02 ? 'unloading' : 'en_route';
+              if (distanceToDestination <= 0.02) {
+                newStatus = 'unloading';
+                this.unloadingStartedAt.set(v.id, now);
+                const hash = Math.abs(v.id.split('').reduce((acc, c) => acc + c.charCodeAt(0), 0));
+                this.dwellDurations.set(v.id, 15000 + (hash % 11) * 1000);
+              } else {
+                newStatus = 'en_route';
+              }
               break;
             }
             

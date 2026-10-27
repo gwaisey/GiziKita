@@ -1,26 +1,28 @@
 'use client';
 
+import { useMemo } from 'react';
 import { useVehicleStore } from '@/js/store/vehicleStore';
-import { Truck, Navigation, AlertTriangle, Battery } from 'lucide-react';
+import { Truck, Navigation, Battery, MapPin } from 'lucide-react';
+import { computeFleetStats } from '@/js/utils/vehicleStatus';
 
 export default function VehicleStats() {
   const vehicles = useVehicleStore((state) => state.vehicles);
   const selectedCity = useVehicleStore((state) => state.selectedCity);
 
-  const filtered = selectedCity === 'Semua' 
-    ? vehicles 
-    : vehicles.filter(v => v.city === selectedCity);
+  const filtered = useMemo(() => {
+    return selectedCity === 'Semua' 
+      ? vehicles 
+      : vehicles.filter(v => v.city === selectedCity);
+  }, [vehicles, selectedCity]);
 
-  const stats = {
-    total: filtered.length,
-    moving: filtered.filter(v => v.status === 'en_route').length,
-    idle: filtered.filter(v => v.status === 'idle').length,
-    delayed: filtered.filter(v => v.status === 'delayed' || v.status === 'accident').length,
-  };
+  const stats = useMemo(() => computeFleetStats(filtered), [filtered]);
 
   return (
     <div className="stats-grid">
-      <div className="stat-card total">
+      <div 
+        className="stat-card total"
+        title={stats.other > 0 ? `${stats.other} armada berstatus khusus / non-operasional` : undefined}
+      >
         <div className="stat-icon"><Truck size={20} /></div>
         <div className="stat-content">
           <span className="stat-label">Total Armada</span>
@@ -44,11 +46,11 @@ export default function VehicleStats() {
         </div>
       </div>
 
-      <div className="stat-card alert">
-        <div className="stat-icon"><AlertTriangle size={20} /></div>
+      <div className="stat-card unloading">
+        <div className="stat-icon"><MapPin size={20} /></div>
         <div className="stat-content">
-          <span className="stat-label">Kendala</span>
-          <span className="stat-value">{stats.delayed}</span>
+          <span className="stat-label">Menurunkan</span>
+          <span className="stat-value">{stats.unloading}</span>
         </div>
       </div>
 
@@ -84,7 +86,7 @@ export default function VehicleStats() {
         .total .stat-icon { background: rgba(139, 28, 63, 0.08); color: var(--maroon); }
         .moving .stat-icon { background: rgba(13, 110, 253, 0.08); color: #0d6efd; }
         .idle .stat-icon { background: rgba(108, 117, 125, 0.08); color: #6c757d; }
-        .alert .stat-icon { background: rgba(220, 53, 69, 0.08); color: #dc3545; }
+        .unloading .stat-icon { background: rgba(46, 125, 50, 0.08); color: #2e7d32; }
 
         .stat-content { display: flex; flex-direction: column; }
         .stat-label { font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
@@ -97,3 +99,4 @@ export default function VehicleStats() {
     </div>
   );
 }
+
