@@ -20,9 +20,7 @@ const SELECTED_ROUTE_SOURCE_ID = 'selected-vehicle-route';
 const SELECTED_ROUTE_CASE_LAYER_ID = 'selected-vehicle-route-case';
 const SELECTED_ROUTE_LAYER_ID = 'selected-vehicle-route-line';
 
-const SELECTED_SCHOOL_SOURCE_ID = 'selected-school-source';
-const SELECTED_SCHOOL_LAYER_ID = 'selected-school-layer';
-const SELECTED_SCHOOL_LABEL_LAYER_ID = 'selected-school-label-layer';
+
 
 interface VehicleMapProps {
   onVehicleSelect?: (vehicle: Vehicle | null) => void;
@@ -310,60 +308,6 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
     };
   }, [filteredVehicles, sppgUnits, selectedCity, offshoreMarkerIds]);
 
-  const schoolsGeoJSON = useMemo<FeatureCollection>(() => {
-    if (filteredVehicles.length === 0 && schools.length === 0) {
-      return { type: 'FeatureCollection', features: [] };
-    }
-
-    const normSelected = normalizeRegionName(selectedCity);
-    const schoolMap = new Map<string, { name: string; province?: string; city?: string; lng: number; lat: number }>();
-
-    // 1. Ingest schools from Supabase infrastructure query if coordinates are valid
-    for (const s of schools) {
-      if (Number.isFinite(s.lng) && Number.isFinite(s.lat) && !offshoreMarkerIds.has(`school:${s.id ?? s.name}`)) {
-        if (selectedCity !== 'Semua') {
-          const norm = normalizeRegionName(s.city || s.province);
-          if (norm !== normSelected && normalizeRegionName(s.province) !== normSelected) continue;
-        }
-        schoolMap.set(s.name, {
-          name: s.name,
-          province: s.province,
-          city: s.city,
-          lng: s.lng,
-          lat: s.lat,
-        });
-      }
-    }
-
-    // 2. HYBRID FALLBACK: Ingest schools from active vehicles' destinations!
-    // Guarantees schools are NEVER missing even if schools table has null lat/lng or demo mode
-    for (const v of vehicles) {
-      if (selectedCity !== 'Semua' && normalizeRegionName(v.city) !== normSelected) continue;
-      const sppg = resolveSppgLocation(v.city, sppgUnits, {
-        vehicleLat: v.last_lat,
-        vehicleLng: v.last_lng,
-      });
-      const resolved = resolveVehicleDestination(v, sppg);
-      if (!schoolMap.has(resolved.name) || !Number.isFinite(schoolMap.get(resolved.name)?.lat)) {
-        schoolMap.set(resolved.name, {
-          name: resolved.name,
-          city: v.city,
-          lng: resolved.lng,
-          lat: resolved.lat,
-        });
-      }
-    }
-
-    return {
-      type: 'FeatureCollection',
-      features: Array.from(schoolMap.values()).map(s => ({
-        type: 'Feature',
-        geometry: { type: 'Point', coordinates: [s.lng, s.lat] },
-        properties: { name: s.name, province: s.province, city: s.city }
-      }))
-    };
-  }, [schools, vehicles, selectedCity, filteredVehicles.length, offshoreMarkerIds, sppgUnits]);
-
   const activeVehicleId = popupInfo?.id || selectedVehicle?.id;
   const activeVehicle = useMemo(() => {
     if (!activeVehicleId) return null;
@@ -391,25 +335,85 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
     };
   }, [activeVehicleId, vehicles, popupInfo, selectedVehicle, sppgUnits]);
 
-  // Selected vehicle destination school Point feature for direct WebGL rendering
-  const selectedSchoolGeoJSON = useMemo<FeatureCollection | null>(() => {
-    if (!activeVehicle || activeVehicle.destination_lng == null || activeVehicle.destination_lat == null) {
-      return null;
+  const schoolsGeoJSON = useMemo<FeatureCollection>(() => {
+    if (filteredVehicles.length === 0 && schools.length === 0) {
+      return { type: 'FeatureCollection', features: [] };
     }
+
+    const normSelected = normalizeRegionName(selectedCity);
+    const schoolList: Array<{ name: string; province?: string; city?: string; lng: number; lat: number }> = [];
+
+    const activeDestLng = activeVehicle?.destination_lng;
+    const activeDestLat = activeVehicle?.destination_lat;
+    const activeDestName = activeVehicle?.destination_school_name?.trim().toLowerCase();
+
+    // Deduplication safeguard: avoids rendering multiple icons on the same spot or with the same name
+    const isDuplicateOrActiveDest = (name: string, lng: number, lat: number) => {
+      // 1. Exclude destination school of active vehicle because <Marker> renders it cleanly with dedicated glowing badge
+      if (activeDestLng != null && activeDestLat != null) {
+        const matchesActiveCoords = Math.hypot(lng - activeDestLng, lat - activeDestLat) < 0.0008;
+        const matchesActiveName = activeDestName ? name.trim().toLowerCase() === activeDestName : false;
+        if (matchesActiveCoords || matchesActiveName) return true;
+      }
+
+      // 2. Prevent overlapping duplicate school icons from DB query and vehicle fallback
+      const normName = name.trim().toLowerCase();
+      return schoolList.some(s => {
+        const nameMatches = s.name.trim().toLowerCase() === normName;
+        const coordsMatch = Math.hypot(s.lng - lng, s.lat - lat) < 0.0008; // ~80m
+        return nameMatches || coordsMatch;
+      });
+    };
+
+    // 1. Ingest schools from Supabase infrastructure query if coordinates are valid
+    for (const s of schools) {
+      if (Number.isFinite(s.lng) && Number.isFinite(s.lat) && !offshoreMarkerIds.has(`school:${s.id ?? s.name}`)) {
+        if (selectedCity !== 'Semua') {
+          const norm = normalizeRegionName(s.city || s.province);
+          if (norm !== normSelected && normalizeRegionName(s.province) !== normSelected) continue;
+        }
+        if (!isDuplicateOrActiveDest(s.name, s.lng, s.lat)) {
+          schoolList.push({
+            name: s.name,
+            province: s.province,
+            city: s.city,
+            lng: s.lng,
+            lat: s.lat,
+          });
+        }
+      }
+    }
+
+    // 2. HYBRID FALLBACK: Ingest schools from active vehicles' destinations!
+    // Guarantees schools are NEVER missing even if schools table has null lat/lng or demo mode
+    for (const v of vehicles) {
+      if (selectedCity !== 'Semua' && normalizeRegionName(v.city) !== normSelected) continue;
+      const sppg = resolveSppgLocation(v.city, sppgUnits, {
+        vehicleLat: v.last_lat,
+        vehicleLng: v.last_lng,
+      });
+      const resolved = resolveVehicleDestination(v, sppg);
+      if (Number.isFinite(resolved.lng) && Number.isFinite(resolved.lat)) {
+        if (!isDuplicateOrActiveDest(resolved.name, resolved.lng, resolved.lat)) {
+          schoolList.push({
+            name: resolved.name,
+            city: v.city,
+            lng: resolved.lng,
+            lat: resolved.lat,
+          });
+        }
+      }
+    }
+
     return {
       type: 'FeatureCollection',
-      features: [{
+      features: schoolList.map(s => ({
         type: 'Feature',
-        geometry: {
-          type: 'Point',
-          coordinates: [activeVehicle.destination_lng, activeVehicle.destination_lat]
-        },
-        properties: {
-          name: activeVehicle.destination_school_name || 'Sekolah Penerima'
-        }
-      }]
+        geometry: { type: 'Point', coordinates: [s.lng, s.lat] },
+        properties: { name: s.name, province: s.province, city: s.city }
+      }))
     };
-  }, [activeVehicle]);
+  }, [schools, vehicles, selectedCity, filteredVehicles.length, offshoreMarkerIds, sppgUnits, activeVehicle]);
 
   // --- 60FPS ANIMATION ENGINE (High Performance) ---
   const animationRef = useRef<number>(0);
@@ -1102,50 +1106,6 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
     }
   };
 
-  const selectedSchoolLayerStyle: any = {
-    id: SELECTED_SCHOOL_LAYER_ID,
-    type: 'symbol',
-    source: SELECTED_SCHOOL_SOURCE_ID,
-    layout: {
-      'icon-image': 'icon-school',
-      'icon-size': [
-        'interpolate', ['linear'], ['zoom'],
-        4, 0.45,
-        10, 0.7,
-        14, 0.9,
-        18, 0.7
-      ],
-      'icon-allow-overlap': true,
-      'icon-ignore-placement': true
-    }
-  };
-
-  const selectedSchoolLabelLayerStyle: any = {
-    id: SELECTED_SCHOOL_LABEL_LAYER_ID,
-    type: 'symbol',
-    source: SELECTED_SCHOOL_SOURCE_ID,
-    layout: {
-      'text-field': ['get', 'name'],
-      'text-font': ['Open Sans Bold', 'Arial Unicode MS Bold'],
-      'text-size': [
-        'interpolate', ['linear'], ['zoom'],
-        8, 9,
-        11, 11,
-        14, 13
-      ],
-      'text-offset': [0, 2.2],
-      'text-anchor': 'top',
-      'text-allow-overlap': true,
-      'text-ignore-placement': true
-    },
-    paint: {
-      'text-color': '#c62828',
-      'text-halo-color': '#ffffff',
-      'text-halo-width': 2.5,
-      'text-halo-blur': 0.5,
-      'text-opacity': 1
-    }
-  };
 
   const toggleSimulation = async () => {
     if (simulationActive) {
@@ -1262,12 +1222,7 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
             </Source>
           )}
 
-          {selectedSchoolGeoJSON && (
-            <Source id={SELECTED_SCHOOL_SOURCE_ID} type="geojson" data={selectedSchoolGeoJSON}>
-              <Layer {...selectedSchoolLayerStyle} />
-              <Layer {...selectedSchoolLabelLayerStyle} />
-            </Source>
-          )}
+
 
           {schoolsGeoJSON && (
             <Source id="schools-source" type="geojson" data={schoolsGeoJSON}>
