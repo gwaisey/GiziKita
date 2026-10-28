@@ -111,8 +111,15 @@ export const useVehicleStore = create<VehicleState>()(
                 vehicleLng: v.last_lng,
                 vehicleIndex: idx,
               });
-              const sppgLng = sppgLoc?.lng ?? v.last_lng;
-              const sppgLat = sppgLoc?.lat ?? v.last_lat;
+              const rawSppgLng = sppgLoc?.lng ?? v.last_lng;
+              const rawSppgLat = sppgLoc?.lat ?? v.last_lat;
+              const clampedSppg = clampCoordinatesToLand(
+                rawSppgLat ?? -6.2,
+                rawSppgLng ?? 106.8,
+                v.city
+              );
+              const sppgLng = clampedSppg.lng;
+              const sppgLat = clampedSppg.lat;
 
               const hasRoute = isValidRoute(v.route_geometry);
               const hasHub = sppgLng != null && sppgLat != null;
@@ -149,6 +156,16 @@ export const useVehicleStore = create<VehicleState>()(
                   routeGeometry = [[sppgLng as number, sppgLat as number], ...v.route_geometry!];
                   routeSource = 'legacy_unverified';
                 }
+              }
+
+              if (Array.isArray(routeGeometry)) {
+                routeGeometry = routeGeometry.map((coord: number[]) => {
+                  if (Array.isArray(coord) && coord.length >= 2 && Number.isFinite(coord[0]) && Number.isFinite(coord[1])) {
+                    const cl = clampCoordinatesToLand(coord[1], coord[0], v.city);
+                    return [cl.lng, cl.lat];
+                  }
+                  return coord;
+                });
               }
 
               const res: Vehicle = {

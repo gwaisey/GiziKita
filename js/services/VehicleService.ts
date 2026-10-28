@@ -245,14 +245,18 @@ class VehicleService {
           let hubLng = region.lng;
 
           if (i === 1) {
-            // Hub 2: Distrik Sektor Timur / Utara
-            hubLat = region.lat + 0.015;
-            hubLng = region.lng + 0.018;
+            // Hub 2: Distrik Sektor Timur / Utara (~800m offset)
+            hubLat = region.lat + 0.007;
+            hubLng = region.lng + 0.007;
           } else if (i === 2) {
-            // Hub 3: Distrik Sektor Barat / Selatan
-            hubLat = region.lat - 0.015;
-            hubLng = region.lng - 0.018;
+            // Hub 3: Distrik Sektor Barat / Selatan (~800m offset)
+            hubLat = region.lat - 0.007;
+            hubLng = region.lng - 0.007;
           }
+
+          const clampedHub = clampCoordinatesToLand(hubLat, hubLng, region.name);
+          hubLat = clampedHub.lat;
+          hubLng = clampedHub.lng;
 
           const station = {
             name: `SPPG ${region.name} - Hub ${i + 1}`,

@@ -76,17 +76,27 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
         const matched = regionMap.get(cityName) || regionMap.get(
           (hub.name || '').replace(/^SPPG\s+/i, '').replace(/\s+-\s+Hub\s+\d+$/i, '').trim().toLowerCase()
         );
-        if (matched) {
-          return {
-            ...hub,
-            lat: matched.lat,
-            lng: matched.lng,
-          };
-        }
-        return hub;
+        const baseLat = matched?.lat ?? hub.lat;
+        const baseLng = matched?.lng ?? hub.lng;
+        const clamped = clampCoordinatesToLand(baseLat, baseLng, hub.city || hub.name);
+        return {
+          ...hub,
+          lat: clamped.lat,
+          lng: clamped.lng,
+        };
       });
 
-      return { sppgUnits: sanitizedHubs, schools: schoolsResult.data ?? [] };
+      // Sanitize all schools against verified regional land coordinates
+      const sanitizedSchools = (schoolsResult.data ?? []).map((school: any) => {
+        const clamped = clampCoordinatesToLand(school.lat, school.lng, school.city || school.province);
+        return {
+          ...school,
+          lat: clamped.lat,
+          lng: clamped.lng,
+        };
+      });
+
+      return { sppgUnits: sanitizedHubs, schools: sanitizedSchools };
     },
   });
   const sppgUnits: any[] = infrastructureQuery.data?.sppgUnits ?? [];
@@ -824,8 +834,13 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
     const destLng = resolved.lng;
     const destLat = resolved.lat;
 
-    const originLng: number = startLng ?? sppg?.lng ?? (destLng - 0.015);
-    const originLat: number = startLat ?? sppg?.lat ?? (destLat - 0.015);
+    const clampedOrigin = clampCoordinatesToLand(
+      startLat ?? sppg?.lat ?? destLat,
+      startLng ?? sppg?.lng ?? destLng,
+      vehicle.city
+    );
+    const originLng: number = clampedOrigin.lng;
+    const originLat: number = clampedOrigin.lat;
 
     let route: number[][] = [];
 
@@ -854,9 +869,10 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
     if (route.length > 0) {
       for (const coord of route) {
         if (coord && Number.isFinite(coord[0]) && Number.isFinite(coord[1])) {
-          const isDup = Math.hypot(coord[0] - originLng, coord[1] - originLat) < 0.00001;
+          const clampedCoord = clampCoordinatesToLand(coord[1], coord[0], vehicle.city);
+          const isDup = Math.hypot(clampedCoord.lng - originLng, clampedCoord.lat - originLat) < 0.00001;
           if (!isDup) {
-            coordinates.push([coord[0], coord[1]]);
+            coordinates.push([clampedCoord.lng, clampedCoord.lat]);
           }
         }
       }

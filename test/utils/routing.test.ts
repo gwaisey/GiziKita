@@ -53,4 +53,28 @@ describe('routing land-clamping safety', () => {
     const resolved = resolveVehicleDestination(vehicle);
     expect(resolved.lng).toBeGreaterThanOrEqual(131.258);
   });
+
+  it('clamps coordinates in Kota Ambon, Kota Jayapura, Kota Balikpapan, and Kota Denpasar safely onto land', () => {
+    const ambon = clampCoordinatesToLand(-3.73, 128.15, 'Kota Ambon');
+    expect(ambon.lat).toBeGreaterThanOrEqual(-3.710);
+    expect(ambon.lng).toBeGreaterThanOrEqual(128.175);
+
+    const jayapura = clampCoordinatesToLand(-2.52, 140.67, 'Kota Jayapura');
+    expect(jayapura.lat).toBeLessThanOrEqual(-2.535);
+
+    const balikpapan = clampCoordinatesToLand(-1.26, 116.82, 'Kota Balikpapan');
+    expect(balikpapan.lat).toBeGreaterThanOrEqual(-1.245);
+    expect(balikpapan.lng).toBeGreaterThanOrEqual(116.835);
+
+    const denpasar = clampCoordinatesToLand(-8.73, 115.27, 'Kota Denpasar');
+    expect(denpasar.lat).toBeGreaterThanOrEqual(-8.705);
+    expect(denpasar.lng).toBeLessThanOrEqual(115.250);
+  });
+
+  it('universal safeguard pulls any coordinates drifting far from regional center back to safe urban radius', () => {
+    // Coordinate 15km out into the ocean
+    const clamped = clampCoordinatesToLand(-8.8, 115.1, 'Kota Denpasar');
+    // Must be pulled close to verified centroid (-8.6705, 115.2126)
+    expect(clamped.lat).toBeGreaterThanOrEqual(-8.72);
+  });
 });
