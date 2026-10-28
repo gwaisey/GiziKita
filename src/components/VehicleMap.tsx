@@ -9,7 +9,7 @@ import { useVehicleStore, Vehicle } from '@/js/store/vehicleStore';
 import { useQuery } from '@tanstack/react-query';
 import { INDONESIA_514_REGIONS, resolveSppgLocation, normalizeRegionName } from '@/js/data/indonesia_regions';
 import VehicleService, { VEHICLE_STATUS_META } from '@/js/services/VehicleService';
-import { createFallbackRoute, isValidRoute, resolveVehicleDestination, clampCoordinatesToLand } from '@/js/utils/routing';
+import { createFallbackRoute, isValidRoute, isValidCoord, resolveVehicleDestination, clampCoordinatesToLand } from '@/js/utils/routing';
 import { AlertTriangle, MapPin, Navigation, School, Trash2, User, X, Zap } from 'lucide-react';
 import { supabase } from '@/js/core/SupabaseClient';
 import { queryKeys } from '@/src/lib/queryKeys';
@@ -156,8 +156,8 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
         vehicleLng: vehicle.last_lng,
         vehicleIndex: vehicleIdx >= 0 ? vehicleIdx : undefined
       });
-      startLng = sppg?.lng ?? (vehicle.route_geometry?.[0]?.[0] ?? vehicle.last_lng);
-      startLat = sppg?.lat ?? (vehicle.route_geometry?.[0]?.[1] ?? vehicle.last_lat);
+      startLng = vehicle.route_geometry?.[0]?.[0] ?? vehicle.last_lng ?? sppg?.lng;
+      startLat = vehicle.route_geometry?.[0]?.[1] ?? vehicle.last_lat ?? sppg?.lat;
     } else {
       // Already moving: continue from where the vehicle is right now (no teleporting)
       startLng = vehicle.last_lng;
@@ -476,6 +476,9 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
         if (origin) {
           targetLng = origin[0];
           targetLat = origin[1];
+        } else if (v.last_lng != null && v.last_lat != null) {
+          targetLng = v.last_lng;
+          targetLat = v.last_lat;
         } else {
           const normCity = normalizeRegionName(v.city);
           const cityVehicles = targetFleet.filter(item => normalizeRegionName(item.city) === normCity);
@@ -815,69 +818,79 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
 
     // Find the LATEST version of this vehicle from the main fleet list
     const vehicle = vehicles.find(v => v.id === selected.id) || selected;
-    
-    // Resolve starting origin coordinates
-    let startLng = vehicle.last_lng;
-    let startLat = vehicle.last_lat;
 
     const sppg = resolveSppgLocation(vehicle.city, sppgUnits, {
       vehicleLat: vehicle.last_lat,
       vehicleLng: vehicle.last_lng,
     });
 
-    if (vehicle.status === 'idle' && sppg) {
-      startLng = sppg.lng;
-      startLat = sppg.lat;
-    }
-
     const resolved = resolveVehicleDestination(vehicle, sppg);
     const destLng = resolved.lng;
     const destLat = resolved.lat;
 
-    const clampedOrigin = clampCoordinatesToLand(
-      startLat ?? sppg?.lat ?? destLat,
-      startLng ?? sppg?.lng ?? destLng,
-      vehicle.city
-    );
-    const originLng: number = clampedOrigin.lng;
-    const originLat: number = clampedOrigin.lat;
+    // 1. Resolve starting origin coordinates (strictly matching where the vehicle physically sits)
+    let originLng: number;
+    let originLat: number;
+
+    if (vehicle.status === 'idle') {
+      if (vehicle.route_geometry && vehicle.route_geometry.length > 0 && isValidCoord(vehicle.route_geometry[0])) {
+        originLng = vehicle.route_geometry[0][0];
+        originLat = vehicle.route_geometry[0][1];
+      } else {
+        originLng = vehicle.last_lng ?? sppg?.lng ?? destLng;
+        originLat = vehicle.last_lat ?? sppg?.lat ?? destLat;
+      }
+    } else {
+      originLng = vehicle.last_lng ?? destLng;
+      originLat = vehicle.last_lat ?? destLat;
+    }
+
+    const clampedOrigin = clampCoordinatesToLand(originLat, originLng, vehicle.city);
+    originLng = clampedOrigin.lng;
+    originLat = clampedOrigin.lat;
 
     let route: number[][] = [];
 
     // Check if vehicle already has a valid polyline route
-    const lastCoord = vehicle.route_geometry?.[vehicle.route_geometry.length - 1];
-    const isEndpointOffshore = lastCoord && (
-      clampCoordinatesToLand(lastCoord[1], lastCoord[0], vehicle.city).lat !== lastCoord[1] ||
-      clampCoordinatesToLand(lastCoord[1], lastCoord[0], vehicle.city).lng !== lastCoord[0]
-    );
-
-    if (isValidRoute(vehicle.route_geometry) && !isEndpointOffshore) {
-      route = vehicle.route_geometry.filter(coord => Array.isArray(coord) && coord.length >= 2);
-      if (route.length > 1 && vehicle.route_progress !== null && vehicle.route_progress !== undefined) {
+    if (isValidRoute(vehicle.route_geometry)) {
+      const fullRoute = vehicle.route_geometry.filter(coord => Array.isArray(coord) && coord.length >= 2);
+      if (vehicle.status === 'idle') {
+        // IDLE: Never slice the route! Show the complete route from vehicle to school
+        route = fullRoute;
+      } else if (vehicle.route_progress != null && vehicle.route_progress > 0) {
+        // MOVING: Show remaining path from current vehicle position to school
         const progressIndex = Math.max(0, Math.floor(vehicle.route_progress));
-        route = route.slice(Math.min(progressIndex, route.length - 1));
+        const remaining = fullRoute.slice(Math.min(progressIndex + 1, fullRoute.length - 1));
+        route = [[originLng, originLat], ...remaining];
+      } else {
+        route = fullRoute;
       }
     } else {
-      // INSTANT ROUTE ON CLICK (0ms latency: immediately appears before simulation starts!)
+      // INSTANT FALLBACK ROUTE: strictly from vehicle's current position to destination
       route = createFallbackRoute(
         { lng: originLng, lat: originLat },
         { lng: destLng, lat: destLat }
       );
     }
 
+    // Build final coordinates array with 100% guaranteed vehicle and destination connection
     const coordinates: [number, number][] = [[originLng, originLat]];
     if (route.length > 0) {
-      for (const coord of route) {
+      for (let i = 0; i < route.length; i++) {
+        const coord = route[i];
         if (coord && Number.isFinite(coord[0]) && Number.isFinite(coord[1])) {
           const clampedCoord = clampCoordinatesToLand(coord[1], coord[0], vehicle.city);
           const isDup = Math.hypot(clampedCoord.lng - originLng, clampedCoord.lat - originLat) < 0.00001;
-          if (!isDup) {
+          if (!isDup || i > 0) {
             coordinates.push([clampedCoord.lng, clampedCoord.lat]);
           }
         }
       }
     }
-    
+
+    // Ensure the route ALWAYS starts exactly at the vehicle's position
+    coordinates[0] = [originLng, originLat];
+
     // Explicitly lock the endpoint to the verified land school destination
     if (coordinates.length > 1) {
       coordinates[coordinates.length - 1] = [destLng, destLat];

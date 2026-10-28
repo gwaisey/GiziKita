@@ -59,7 +59,6 @@ export function createFallbackRoute(
   return [p1, p2, p3, p4];
 }
 
-import { findRegionByName } from '@/js/data/indonesia_regions';
 
 export interface ResolvedDestination {
   name: string;
@@ -259,21 +258,6 @@ export function clampCoordinatesToLand(
     }
     if (lat > -7.00 && (normCity.includes('tuban') || normCity.includes('lamongan') || normCity.includes('gresik'))) {
       return { lat: Math.min(lat, -7.08), lng };
-    }
-  }
-
-  // 21. UNIVERSAL REGION CENTROID SAFE-GUARD FOR ALL 514 REGIONS:
-  // Every region in INDONESIA_514_REGIONS has an administratively verified land coordinate.
-  // If coordinates drift > 0.022 degrees (~2.4 km) from the verified center, pull them back!
-  const reg = findRegionByName(city);
-  if (reg) {
-    const dist = Math.hypot(lat - reg.lat, lng - reg.lng);
-    if (dist > 0.022) {
-      const scale = 0.015 / dist;
-      return {
-        lat: reg.lat + (lat - reg.lat) * scale,
-        lng: reg.lng + (lng - reg.lng) * scale,
-      };
     }
   }
 

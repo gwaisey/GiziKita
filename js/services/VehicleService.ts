@@ -152,8 +152,8 @@ class VehicleService {
     // SPPG hub; a moving vehicle keeps its current position so swapping in a road-snapped route
     // never teleports it.
     const isIdle = vehicle?.status === 'idle';
-    const anchorLng = isIdle && sppgLoc ? sppgLoc.lng : (vehicle?.last_lng ?? snappedStartLng);
-    const anchorLat = isIdle && sppgLoc ? sppgLoc.lat : (vehicle?.last_lat ?? snappedStartLat);
+    const anchorLng = vehicle?.route_geometry?.[0]?.[0] ?? vehicle?.last_lng ?? (isIdle && sppgLoc ? sppgLoc.lng : snappedStartLng);
+    const anchorLat = vehicle?.route_geometry?.[0]?.[1] ?? vehicle?.last_lat ?? (isIdle && sppgLoc ? sppgLoc.lat : snappedStartLat);
     const activeLng = anchorLng;
     const activeLat = anchorLat;
 
