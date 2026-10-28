@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import MapGL, { NavigationControl, FullscreenControl, Source, Layer, MapRef, Marker } from 'react-map-gl/mapbox';
+import MapGL, { NavigationControl, FullscreenControl, Source, Layer, MapRef } from 'react-map-gl/mapbox';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import type { FeatureCollection, LineString } from 'geojson';
 import { useVehicleStore, Vehicle } from '@/js/store/vehicleStore';
@@ -347,20 +347,12 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
     const activeDestLat = activeVehicle?.destination_lat;
     const activeDestName = activeVehicle?.destination_school_name?.trim().toLowerCase();
 
-    // Deduplication safeguard: avoids rendering multiple icons on the same spot or with the same name
-    const isDuplicateOrActiveDest = (name: string, lng: number, lat: number) => {
-      // 1. Exclude destination school of active vehicle because <Marker> renders it cleanly with dedicated glowing badge
-      if (activeDestLng != null && activeDestLat != null) {
-        const matchesActiveCoords = Math.hypot(lng - activeDestLng, lat - activeDestLat) < 0.0008;
-        const matchesActiveName = activeDestName ? name.trim().toLowerCase() === activeDestName : false;
-        if (matchesActiveCoords || matchesActiveName) return true;
-      }
-
-      // 2. Prevent overlapping duplicate school icons from DB query and vehicle fallback
-      const normName = name.trim().toLowerCase();
+    // Deduplication safeguard: avoids duplicate icons at the same coordinates or identical name
+    const hasDuplicate = (candidate: { name: string; lng: number; lat: number }) => {
+      const normName = candidate.name.trim().toLowerCase();
       return schoolList.some(s => {
         const nameMatches = s.name.trim().toLowerCase() === normName;
-        const coordsMatch = Math.hypot(s.lng - lng, s.lat - lat) < 0.0008; // ~80m
+        const coordsMatch = Math.hypot(s.lng - candidate.lng, s.lat - candidate.lat) < 0.0008; // ~80m
         return nameMatches || coordsMatch;
       });
     };
@@ -372,7 +364,7 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
           const norm = normalizeRegionName(s.city || s.province);
           if (norm !== normSelected && normalizeRegionName(s.province) !== normSelected) continue;
         }
-        if (!isDuplicateOrActiveDest(s.name, s.lng, s.lat)) {
+        if (!hasDuplicate(s)) {
           schoolList.push({
             name: s.name,
             province: s.province,
@@ -384,8 +376,7 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
       }
     }
 
-    // 2. HYBRID FALLBACK: Ingest schools from active vehicles' destinations!
-    // Guarantees schools are NEVER missing even if schools table has null lat/lng or demo mode
+    // 2. HYBRID FALLBACK: Ingest schools from active vehicles' destinations
     for (const v of vehicles) {
       if (selectedCity !== 'Semua' && normalizeRegionName(v.city) !== normSelected) continue;
       const sppg = resolveSppgLocation(v.city, sppgUnits, {
@@ -394,7 +385,7 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
       });
       const resolved = resolveVehicleDestination(v, sppg);
       if (Number.isFinite(resolved.lng) && Number.isFinite(resolved.lat)) {
-        if (!isDuplicateOrActiveDest(resolved.name, resolved.lng, resolved.lat)) {
+        if (!hasDuplicate({ name: resolved.name, lng: resolved.lng, lat: resolved.lat })) {
           schoolList.push({
             name: resolved.name,
             city: v.city,
@@ -405,13 +396,46 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
       }
     }
 
+    // 3. Guarantee active vehicle's destination is included
+    if (activeDestLng != null && activeDestLat != null && Number.isFinite(activeDestLng) && Number.isFinite(activeDestLat)) {
+      const alreadyHas = schoolList.some(s => {
+        const coordsMatch = Math.hypot(s.lng - activeDestLng, s.lat - activeDestLat) < 0.0008;
+        const nameMatches = activeDestName ? s.name.trim().toLowerCase() === activeDestName : false;
+        return coordsMatch || nameMatches;
+      });
+      if (!alreadyHas) {
+        schoolList.push({
+          name: activeVehicle?.destination_school_name || 'Sekolah Penerima',
+          city: activeVehicle?.city,
+          lng: activeDestLng,
+          lat: activeDestLat
+        });
+      }
+    }
+
+    const isDestinationOfActiveVehicle = (s: { name: string; lng: number; lat: number }) => {
+      if (activeDestLng != null && activeDestLat != null) {
+        if (Math.hypot(s.lng - activeDestLng, s.lat - activeDestLat) < 0.0008) return true;
+      }
+      if (activeDestName && s.name.trim().toLowerCase() === activeDestName) return true;
+      return false;
+    };
+
     return {
       type: 'FeatureCollection',
-      features: schoolList.map(s => ({
-        type: 'Feature',
-        geometry: { type: 'Point', coordinates: [s.lng, s.lat] },
-        properties: { name: s.name, province: s.province, city: s.city }
-      }))
+      features: schoolList.map(s => {
+        const isSelected = isDestinationOfActiveVehicle(s) ? 1 : 0;
+        return {
+          type: 'Feature',
+          geometry: { type: 'Point', coordinates: [s.lng, s.lat] },
+          properties: {
+            name: s.name,
+            province: s.province,
+            city: s.city,
+            isSelected
+          }
+        };
+      })
     };
   }, [schools, vehicles, selectedCity, filteredVehicles.length, offshoreMarkerIds, sppgUnits, activeVehicle]);
 
@@ -1074,13 +1098,30 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
     layout: {
       'icon-image': 'icon-school',
       'icon-size': [
-        'interpolate', ['linear'], ['zoom'], 
-        8, 0.35, 
-        12, 0.55, 
-        15, 0.75,
-        18, 0.5
+        'case',
+        ['==', ['get', 'isSelected'], 1],
+        [
+          'interpolate', ['linear'], ['zoom'],
+          4, 0.45,
+          8, 0.65,
+          12, 0.85,
+          15, 1.0,
+          18, 0.75
+        ],
+        [
+          'interpolate', ['linear'], ['zoom'], 
+          8, 0.35, 
+          12, 0.55, 
+          15, 0.75,
+          18, 0.5
+        ]
       ],
-      'icon-allow-overlap': true
+      'icon-allow-overlap': true,
+      'icon-ignore-placement': true
+    },
+    paint: {
+      'icon-halo-color': ['case', ['==', ['get', 'isSelected'], 1], '#8B1C3F', 'rgba(255, 255, 255, 0)'],
+      'icon-halo-width': ['case', ['==', ['get', 'isSelected'], 1], 4, 0]
     }
   };
 
@@ -1090,18 +1131,35 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
     layout: {
       'text-field': ['get', 'name'],
       'text-font': ['Open Sans Bold', 'Arial Unicode MS Bold'],
-      'text-size': 10,
+      'text-size': [
+        'case',
+        ['==', ['get', 'isSelected'], 1],
+        [
+          'interpolate', ['linear'], ['zoom'],
+          8, 11,
+          12, 13,
+          15, 15
+        ],
+        10
+      ],
       'text-offset': [0, 1.8],
       'text-anchor': 'top',
+      'text-allow-overlap': true,
+      'text-ignore-placement': true
     },
     paint: {
-      'text-color': '#c62828',
+      'text-color': ['case', ['==', ['get', 'isSelected'], 1], '#8B1C3F', '#c62828'],
       'text-halo-color': '#ffffff',
-      'text-halo-width': 1.5,
+      'text-halo-width': ['case', ['==', ['get', 'isSelected'], 1], 3, 1.5],
       'text-opacity': [
-        'interpolate', ['linear'], ['zoom'],
-        11, 0,
-        12, 1
+        'case',
+        ['==', ['get', 'isSelected'], 1],
+        1,
+        [
+          'interpolate', ['linear'], ['zoom'],
+          11, 0,
+          12, 1
+        ]
       ]
     }
   };
@@ -1229,26 +1287,6 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
               <Layer {...schoolsLayerStyle} />
               <Layer {...schoolsLabelLayerStyle} />
             </Source>
-          )}
-
-          {activeVehicle &&
-            activeVehicle.destination_lng != null &&
-            activeVehicle.destination_lat != null && (
-            <Marker
-              longitude={activeVehicle.destination_lng}
-              latitude={activeVehicle.destination_lat}
-              anchor="center"
-            >
-              <div 
-                className="school-marker active" 
-                title={activeVehicle.destination_school_name || 'Sekolah Penerima'}
-              >
-                <span className="school-marker-badge">
-                  {activeVehicle.destination_school_name || 'Sekolah Tujuan'}
-                </span>
-                <School size={18} />
-              </div>
-            </Marker>
           )}
 
           {/* WebGL Fleet is now managed manually via Mapbox API for 100% responsiveness */}
@@ -1566,51 +1604,7 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
           background: rgba(255, 255, 255, 0.98);
         }
 
-        .school-marker {
-          position: relative;
-          width: 36px;
-          height: 36px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          border-radius: 50%;
-          background: #ffffff;
-          color: #c62828;
-          border: 2.5px solid #ff5252;
-          box-shadow: 0 4px 14px rgba(198, 40, 40, 0.4), 0 0 0 3px rgba(255, 82, 82, 0.25);
-          cursor: pointer;
-          z-index: 20;
-          animation: schoolPulse 2s infinite ease-in-out;
-        }
 
-        @keyframes schoolPulse {
-          0% {
-            box-shadow: 0 4px 14px rgba(198, 40, 40, 0.4), 0 0 0 0 rgba(255, 82, 82, 0.5);
-          }
-          70% {
-            box-shadow: 0 4px 14px rgba(198, 40, 40, 0.4), 0 0 0 10px rgba(255, 82, 82, 0);
-          }
-          100% {
-            box-shadow: 0 4px 14px rgba(198, 40, 40, 0.4), 0 0 0 0 rgba(255, 82, 82, 0);
-          }
-        }
-
-        .school-marker-badge {
-          position: absolute;
-          bottom: 40px;
-          left: 50%;
-          transform: translateX(-50%);
-          background: #c62828;
-          color: #ffffff;
-          font-size: 11px;
-          font-weight: 700;
-          padding: 3px 9px;
-          border-radius: 12px;
-          white-space: nowrap;
-          box-shadow: 0 3px 10px rgba(0, 0, 0, 0.25);
-          pointer-events: none;
-          letter-spacing: 0.2px;
-        }
 
         @media (max-width: 760px) {
           .vehicle-map-shell {

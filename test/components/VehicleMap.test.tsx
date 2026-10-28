@@ -59,7 +59,7 @@ describe('VehicleMap Component', () => {
     expect(screen.getByText('Pak Andi')).toBeInTheDocument();
   });
 
-  it('renders destination school marker and badge when vehicle with destination is selected', () => {
+  it('renders destination school info in SelectedVehiclePanel when vehicle with destination is selected', () => {
     const vehicleWithSchool: Vehicle = {
       ...mockVehicles[0],
       destination_lat: -6.22,
@@ -69,13 +69,11 @@ describe('VehicleMap Component', () => {
 
     renderWithQueryClient(<VehicleMap selectedVehicle={vehicleWithSchool} />);
 
-    // Verify school destination badge and panel info are rendered
-    const elements = screen.getAllByText('SDN Menteng 01 Pagi');
-    expect(elements.length).toBeGreaterThanOrEqual(1);
-    expect(screen.getByTitle('SDN Menteng 01 Pagi')).toBeInTheDocument();
+    // Verify school destination info is rendered in panel
+    expect(screen.getByText('SDN Menteng 01 Pagi')).toBeInTheDocument();
   });
 
-  it('auto-recovers and renders destination school marker even if destination_lat and destination_lng are null in vehicle data', () => {
+  it('auto-recovers and resolves destination school even if destination_lat and destination_lng are null in vehicle data', () => {
     const vehicleWithNullDest: Vehicle = {
       ...mockVehicles[0],
       city: 'Jakarta Pusat',
@@ -86,8 +84,7 @@ describe('VehicleMap Component', () => {
 
     renderWithQueryClient(<VehicleMap selectedVehicle={vehicleWithNullDest} />);
 
-    // Should auto-resolve to a valid school marker with title containing Sekolah
-    const marker = screen.getByTitle(/Sekolah Penerima/i);
-    expect(marker).toBeInTheDocument();
+    // Should auto-resolve to a valid destination school in SelectedVehiclePanel
+    expect(screen.getByText('Sekolah Penerima Jakarta Pusat')).toBeInTheDocument();
   });
 });
