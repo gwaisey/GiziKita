@@ -115,8 +115,8 @@ export const useVehicleStore = create<VehicleState>()(
               const hasDestination = v.destination_lng != null && v.destination_lat != null
                 && Number.isFinite(v.destination_lng) && Number.isFinite(v.destination_lat);
 
-              let routeGeometry = v.route_geometry ?? null;
-              let routeSource = v.route_source ?? null;
+              let routeGeometry = v.route_geometry;
+              let routeSource = v.route_source;
               if (!startsAtHub && hasHub) {
                 if (hasDestination) {
                   // Stale / missing route: rebuild one that starts exactly at the hub
@@ -133,15 +133,18 @@ export const useVehicleStore = create<VehicleState>()(
                 }
               }
 
-              return {
+              const res: Vehicle = {
                 ...v,
                 status: 'idle' as VehicleStatus,
                 route_progress: 0,
                 last_lng: sppgLng,
                 last_lat: sppgLat,
-                route_geometry: routeGeometry,
-                route_source: routeSource,
+                route_source: routeSource ?? 'demo_unverified',
               };
+              if (routeGeometry !== undefined) {
+                res.route_geometry = routeGeometry;
+              }
+              return res;
             }
             return v;
           });

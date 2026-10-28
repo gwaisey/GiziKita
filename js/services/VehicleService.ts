@@ -487,11 +487,9 @@ void Promise.allSettled([
 
   public startSimulation() {
     if (this.simulationInterval) return;
-    // Every vehicle with a route OR a destination (we can build a fallback route) can move.
-    if (!useVehicleStore.getState().vehicles.some(v =>
-      isValidRoute(v.route_geometry) || (v.destination_lat != null && v.destination_lng != null)
-    )) return;
-    console.log('[SIMULATION] Starting real-time tracking engine...');
+    const vehicles = useVehicleStore.getState().vehicles;
+    if (vehicles.length === 0) return;
+    console.log(`[SIMULATION] Starting real-time tracking engine for ${vehicles.length} vehicles...`);
     setLocalSimulationActive(true);
     this.simulationInterval = setInterval(() => this.simulateStep(), 1000);
     // Run the first step immediately so every routed vehicle departs at once
@@ -631,12 +629,16 @@ void Promise.allSettled([
         let routeFix: { route_geometry: number[][]; route_source: 'demo_unverified' } | null = null;
         let newProgress = Number.isFinite(v.route_progress as number) ? (v.route_progress as number) : 0;
 
+        // Auto-resolve coordinates: zero operational vehicles are left stranded or skipped
+        const originLat = Number.isFinite(v.last_lat) ? (v.last_lat as number) : -6.2;
+        const originLng = Number.isFinite(v.last_lng) ? (v.last_lng as number) : 106.8;
+        const destLat = Number.isFinite(v.destination_lat) ? (v.destination_lat as number) : originLat + 0.015;
+        const destLng = Number.isFinite(v.destination_lng) ? (v.destination_lng as number) : originLng + 0.015;
+
         if (!isValidRoute(geometry)) {
-          if (v.last_lat == null || v.last_lng == null
-            || v.destination_lat == null || v.destination_lng == null) continue;
           geometry = createFallbackRoute(
-            { lng: v.last_lng, lat: v.last_lat },
-            { lng: v.destination_lng, lat: v.destination_lat },
+            { lng: originLng, lat: originLat },
+            { lng: destLng, lat: destLat },
           );
           routeFix = { route_geometry: geometry, route_source: 'demo_unverified' };
           newProgress = 0;
@@ -650,22 +652,36 @@ void Promise.allSettled([
 
         // --- 2. UNLOADING DWELL ------------------------------------------------------
         if (newStatus === 'unloading') {
-          let startedAt = this.unloadingStartedAt.get(v.id);
-          if (!startedAt) {
-            startedAt = now;
-            this.unloadingStartedAt.set(v.id, startedAt);
-            this.dwellDurations.set(v.id, 15000 + (hashOf(v.id) % 11) * 1000); // 15s to 25s
-          }
-          const dwell = this.dwellDurations.get(v.id) ?? 15000;
-          if (now - startedAt >= dwell) {
-            // Unloading complete: return to SPPG Hub in 'idle' (Siaga)
-            newStatus = 'idle';
-            newProgress = 0;
-            newBearing = 0;
+          // Robust physical proximity verification: A vehicle can ONLY be 'unloading'
+          // if it is physically at its destination school (< 300m / 0.003 deg).
+          // If it is far away (e.g. from an erroneous status or mid-route reload),
+          // it must be safely corrected back to 'en_route'.
+          const curLat = v.last_lat ?? (route[0] ? route[0][1] : originLat);
+          const curLng = v.last_lng ?? (route[0] ? route[0][0] : originLng);
+          const isFarFromSchool = Math.hypot(curLng - destLng, curLat - destLat) > 0.003;
+
+          if (isFarFromSchool) {
+            newStatus = 'en_route';
             this.unloadingStartedAt.delete(v.id);
             this.dwellDurations.delete(v.id);
-            this.idleStartedAt.set(v.id, now);
-            this.idleDurations.set(v.id, 8000 + (hashOf(v.id) % 8) * 1000); // 8s to 15s
+          } else {
+            let startedAt = this.unloadingStartedAt.get(v.id);
+            if (!startedAt) {
+              startedAt = now;
+              this.unloadingStartedAt.set(v.id, startedAt);
+              this.dwellDurations.set(v.id, 15000 + (hashOf(v.id) % 11) * 1000); // 15s to 25s
+            }
+            const dwell = this.dwellDurations.get(v.id) ?? 15000;
+            if (now - startedAt >= dwell) {
+              // Unloading complete: return to SPPG Hub in 'idle' (Siaga)
+              newStatus = 'idle';
+              newProgress = 0;
+              newBearing = 0;
+              this.unloadingStartedAt.delete(v.id);
+              this.dwellDurations.delete(v.id);
+              this.idleStartedAt.set(v.id, now);
+              this.idleDurations.set(v.id, 8000 + (hashOf(v.id) % 8) * 1000); // 8s to 15s
+            }
           }
         }
 

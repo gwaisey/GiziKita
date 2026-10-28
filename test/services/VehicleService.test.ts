@@ -278,6 +278,78 @@ describe('VehicleService', () => {
         Date.now = originalNow;
       }
     });
+
+    it('ensures 100% of idle, loading, and delayed vehicles depart to en_route on first simulation tick', async () => {
+      const fleet: Vehicle[] = [
+        {
+          id: 'v-idle',
+          license_plate: 'B 1001 BGN',
+          driver_name: 'Driver 1',
+          status: 'idle',
+          last_lat: -6.2,
+          last_lng: 106.8,
+          destination_lat: -6.22,
+          destination_lng: 106.82,
+          updated_at: new Date().toISOString(),
+        },
+        {
+          id: 'v-loading',
+          license_plate: 'B 1002 BGN',
+          driver_name: 'Driver 2',
+          status: 'loading',
+          last_lat: -6.2,
+          last_lng: 106.8,
+          destination_lat: -6.23,
+          destination_lng: 106.83,
+          updated_at: new Date().toISOString(),
+        },
+        {
+          id: 'v-delayed',
+          license_plate: 'B 1003 BGN',
+          driver_name: 'Driver 3',
+          status: 'delayed',
+          last_lat: -6.2,
+          last_lng: 106.8,
+          destination_lat: -6.24,
+          destination_lng: 106.84,
+          updated_at: new Date().toISOString(),
+        },
+      ];
+      useVehicleStore.setState({ vehicles: fleet });
+
+      await VehicleService.simulateStep();
+
+      const updated = useVehicleStore.getState().vehicles;
+      expect(updated.length).toBe(3);
+      expect(updated.every(v => v.status === 'en_route')).toBe(true);
+      expect(updated.every(v => v.route_geometry && v.route_geometry.length >= 2)).toBe(true);
+    });
+
+    it('auto-recovers and never crashes when a vehicle is missing destination or route coordinates', async () => {
+      const brokenVehicle: Vehicle = {
+        id: 'v-broken',
+        license_plate: 'B 9999 NUL',
+        driver_name: 'Driver Incomplete',
+        status: 'idle',
+        last_lat: undefined as any,
+        last_lng: undefined as any,
+        destination_lat: undefined as any,
+        destination_lng: undefined as any,
+        route_geometry: null as any,
+        updated_at: new Date().toISOString(),
+      };
+      useVehicleStore.setState({ vehicles: [brokenVehicle] });
+
+      await VehicleService.simulateStep();
+
+      const updated = useVehicleStore.getState().vehicles;
+      expect(updated.length).toBe(1);
+      expect(updated[0].status).toBe('en_route');
+      expect(updated[0].route_geometry).toBeDefined();
+      expect(updated[0].route_geometry!.length).toBeGreaterThanOrEqual(2);
+      expect(Number.isFinite(updated[0].last_lat)).toBe(true);
+      expect(Number.isFinite(updated[0].last_lng)).toBe(true);
+    });
   });
 
   describe('clearDemoData', () => {

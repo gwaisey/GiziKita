@@ -43,6 +43,15 @@ export function createFallbackRoute(
   const p4 = [destination.lng, destination.lat];
   const dLng = p4[0] - p1[0];
   const dLat = p4[1] - p1[1];
+  if (Math.abs(dLng) < 0.00001 && Math.abs(dLat) < 0.00001) {
+    // If destination is coincident with origin, create a small local delivery route
+    return [
+      [origin.lng, origin.lat],
+      [origin.lng + 0.002, origin.lat + 0.001],
+      [origin.lng + 0.003, origin.lat - 0.001],
+      [origin.lng + 0.004, origin.lat],
+    ];
+  }
   const offLng = -dLat * 0.15;
   const offLat = dLng * 0.15;
   const p2 = [p1[0] + dLng * 0.33 + offLng, p1[1] + dLat * 0.33 + offLat];
