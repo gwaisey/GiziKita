@@ -341,42 +341,25 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
     }
 
     const normSelected = normalizeRegionName(selectedCity);
-    const schoolList: Array<{ name: string; province?: string; city?: string; lng: number; lat: number }> = [];
+    const schoolMap = new Map<string, { name: string; province?: string; city?: string; lng: number; lat: number }>();
 
-    const activeDestLng = activeVehicle?.destination_lng;
-    const activeDestLat = activeVehicle?.destination_lat;
-    const activeDestName = activeVehicle?.destination_school_name?.trim().toLowerCase();
-
-    // Deduplication safeguard: avoids duplicate icons at the same coordinates or identical name
-    const hasDuplicate = (candidate: { name: string; lng: number; lat: number }) => {
-      const normName = candidate.name.trim().toLowerCase();
-      return schoolList.some(s => {
-        const nameMatches = s.name.trim().toLowerCase() === normName;
-        const coordsMatch = Math.hypot(s.lng - candidate.lng, s.lat - candidate.lat) < 0.0008; // ~80m
-        return nameMatches || coordsMatch;
-      });
-    };
-
-    // 1. Ingest schools from Supabase infrastructure query if coordinates are valid
     for (const s of schools) {
       if (Number.isFinite(s.lng) && Number.isFinite(s.lat) && !offshoreMarkerIds.has(`school:${s.id ?? s.name}`)) {
         if (selectedCity !== 'Semua') {
           const norm = normalizeRegionName(s.city || s.province);
           if (norm !== normSelected && normalizeRegionName(s.province) !== normSelected) continue;
         }
-        if (!hasDuplicate(s)) {
-          schoolList.push({
-            name: s.name,
-            province: s.province,
-            city: s.city,
-            lng: s.lng,
-            lat: s.lat,
-          });
-        }
+        schoolMap.set(s.name, {
+          name: s.name,
+          province: s.province,
+          city: s.city,
+          lng: s.lng,
+          lat: s.lat,
+        });
       }
     }
 
-    // 2. HYBRID FALLBACK: Ingest schools from active vehicles' destinations
+    // Hybrid: include vehicle destinations so schools always exist in demo/simulation
     for (const v of vehicles) {
       if (selectedCity !== 'Semua' && normalizeRegionName(v.city) !== normSelected) continue;
       const sppg = resolveSppgLocation(v.city, sppgUnits, {
@@ -384,60 +367,25 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
         vehicleLng: v.last_lng,
       });
       const resolved = resolveVehicleDestination(v, sppg);
-      if (Number.isFinite(resolved.lng) && Number.isFinite(resolved.lat)) {
-        if (!hasDuplicate({ name: resolved.name, lng: resolved.lng, lat: resolved.lat })) {
-          schoolList.push({
-            name: resolved.name,
-            city: v.city,
-            lng: resolved.lng,
-            lat: resolved.lat,
-          });
-        }
-      }
-    }
-
-    // 3. Guarantee active vehicle's destination is included
-    if (activeDestLng != null && activeDestLat != null && Number.isFinite(activeDestLng) && Number.isFinite(activeDestLat)) {
-      const alreadyHas = schoolList.some(s => {
-        const coordsMatch = Math.hypot(s.lng - activeDestLng, s.lat - activeDestLat) < 0.0008;
-        const nameMatches = activeDestName ? s.name.trim().toLowerCase() === activeDestName : false;
-        return coordsMatch || nameMatches;
-      });
-      if (!alreadyHas) {
-        schoolList.push({
-          name: activeVehicle?.destination_school_name || 'Sekolah Penerima',
-          city: activeVehicle?.city,
-          lng: activeDestLng,
-          lat: activeDestLat
+      if (!schoolMap.has(resolved.name) && Number.isFinite(resolved.lng) && Number.isFinite(resolved.lat)) {
+        schoolMap.set(resolved.name, {
+          name: resolved.name,
+          city: v.city,
+          lng: resolved.lng,
+          lat: resolved.lat,
         });
       }
     }
 
-    // Exclude active vehicle destination from WebGL layer so it is exclusively rendered
-    // by the prominent, dedicated School Logo <Marker> (guarantees exactly 1 icon, 0% duplication)
-    const isDestinationOfActiveVehicle = (s: { name: string; lng: number; lat: number }) => {
-      if (activeDestLng != null && activeDestLat != null) {
-        if (Math.hypot(s.lng - activeDestLng, s.lat - activeDestLat) < 0.0008) return true;
-      }
-      if (activeDestName && s.name.trim().toLowerCase() === activeDestName) return true;
-      return false;
-    };
-
-    const displaySchools = schoolList.filter(s => !isDestinationOfActiveVehicle(s));
-
     return {
       type: 'FeatureCollection',
-      features: displaySchools.map(s => ({
+      features: Array.from(schoolMap.values()).map(s => ({
         type: 'Feature',
         geometry: { type: 'Point', coordinates: [s.lng, s.lat] },
-        properties: {
-          name: s.name,
-          province: s.province,
-          city: s.city,
-        }
+        properties: { name: s.name, province: s.province }
       }))
     };
-  }, [schools, vehicles, selectedCity, filteredVehicles.length, offshoreMarkerIds, sppgUnits, activeVehicle]);
+  }, [schools, vehicles, selectedCity, filteredVehicles.length, offshoreMarkerIds, sppgUnits]);
 
   // --- 60FPS ANIMATION ENGINE (High Performance) ---
   const animationRef = useRef<number>(0);
@@ -784,61 +732,6 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
       map.addImage('icon-warehouse', hubData);
     }
 
-    // Load School Icon (Red & Gold Schoolhouse Badge)
-    const schoolSize = 48;
-    const schoolCanvas = document.createElement('canvas');
-    schoolCanvas.width = schoolSize;
-    schoolCanvas.height = schoolSize;
-    const schoolCtx = schoolCanvas.getContext('2d');
-    if (schoolCtx) {
-      const c = schoolSize / 2;
-      schoolCtx.shadowColor = 'rgba(0,0,0,0.25)';
-      schoolCtx.shadowBlur = 4;
-
-      // School building main block
-      schoolCtx.fillStyle = '#ff5252'; // Vibrant School Red
-      schoolCtx.fillRect(c - 15, c - 2, 30, 16);
-
-      // Triangular Roof / Gable
-      schoolCtx.beginPath();
-      schoolCtx.moveTo(c - 18, c - 2);
-      schoolCtx.lineTo(c, c - 14);
-      schoolCtx.lineTo(c + 18, c - 2);
-      schoolCtx.closePath();
-      schoolCtx.fillStyle = '#c62828';
-      schoolCtx.fill();
-
-      // Bell Tower / Flag atop roof
-      schoolCtx.fillStyle = '#F4C662'; // Gold
-      schoolCtx.fillRect(c - 3, c - 20, 6, 7);
-      schoolCtx.beginPath();
-      schoolCtx.moveTo(c - 4, c - 20);
-      schoolCtx.lineTo(c, c - 24);
-      schoolCtx.lineTo(c + 4, c - 20);
-      schoolCtx.closePath();
-      schoolCtx.fillStyle = '#8B1C3F';
-      schoolCtx.fill();
-
-      // Entrance Door
-      schoolCtx.fillStyle = '#FFFFFF';
-      schoolCtx.fillRect(c - 3, c + 6, 6, 8);
-
-      // Windows
-      schoolCtx.fillRect(c - 11, c + 2, 5, 5);
-      schoolCtx.fillRect(c + 6, c + 2, 5, 5);
-
-      // Clock / Circle in gable
-      schoolCtx.beginPath();
-      schoolCtx.arc(c, c - 6, 2.5, 0, Math.PI * 2);
-      schoolCtx.fillStyle = '#FFFFFF';
-      schoolCtx.fill();
-
-      const schoolData = schoolCtx.getImageData(0, 0, schoolSize, schoolSize);
-      if (!map.hasImage('icon-school')) {
-        map.addImage('icon-school', schoolData);
-      }
-    }
-
     // --- MANUAL FLEET LAYER INJECTION (Bypass React) ---
     if (!map.getSource('fleet-source')) {
       map.addSource('fleet-source', {
@@ -1091,45 +984,7 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
     }
   };
 
-  const schoolsLayerStyle: any = {
-    id: 'schools-layer',
-    type: 'symbol',
-    layout: {
-      'icon-image': 'icon-school',
-      'icon-size': [
-        'interpolate', ['linear'], ['zoom'], 
-        8, 0.35, 
-        12, 0.55, 
-        15, 0.75,
-        18, 0.5
-      ],
-      'icon-allow-overlap': true,
-      'icon-ignore-placement': true
-    }
-  };
 
-  const schoolsLabelLayerStyle: any = {
-    id: 'schools-label-layer',
-    type: 'symbol',
-    layout: {
-      'text-field': ['get', 'name'],
-      'text-font': ['Open Sans Bold', 'Arial Unicode MS Bold'],
-      'text-size': 10,
-      'text-offset': [0, 1.8],
-      'text-anchor': 'top',
-      'text-allow-overlap': true
-    },
-    paint: {
-      'text-color': '#c62828',
-      'text-halo-color': '#ffffff',
-      'text-halo-width': 1.5,
-      'text-opacity': [
-        'interpolate', ['linear'], ['zoom'],
-        11, 0,
-        12, 1
-      ]
-    }
-  };
 
 
   const toggleSimulation = async () => {
@@ -1251,43 +1106,33 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
 
           {schoolsGeoJSON && (
             <Source id="schools-source" type="geojson" data={schoolsGeoJSON}>
-              <Layer {...schoolsLayerStyle} />
-              <Layer {...schoolsLabelLayerStyle} />
+              <Layer 
+                id="schools-layer" 
+                type="circle" 
+                paint={{
+                  'circle-radius': 3,
+                  'circle-color': '#ff5252',
+                  'circle-stroke-width': 1,
+                  'circle-stroke-color': '#fff',
+                  'circle-opacity': 0.45
+                }} 
+              />
             </Source>
           )}
 
-          {/* Dedicated Single School Logo for the Active Vehicle's Destination (Pure Schoolhouse Logo, 0% Duplicate) */}
           {activeVehicle &&
             activeVehicle.destination_lng != null &&
             activeVehicle.destination_lat != null && (
             <Marker
               longitude={activeVehicle.destination_lng}
               latitude={activeVehicle.destination_lat}
-              anchor="bottom"
+              anchor="center"
             >
               <div 
-                className="school-logo-destination" 
+                className="school-marker"
                 title={activeVehicle.destination_school_name || 'Sekolah Penerima'}
               >
-                <span className="school-logo-badge">
-                  {activeVehicle.destination_school_name || 'Sekolah Tujuan'}
-                </span>
-                <div className="school-logo-icon">
-                  <svg width="34" height="34" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    {/* School Building Base */}
-                    <rect x="5" y="14" width="22" height="15" rx="2" fill="#C62828" stroke="#8B1C3F" strokeWidth="1.5"/>
-                    <polygon points="3,14 16,4 29,14" fill="#E53935" stroke="#8B1C3F" strokeWidth="1.5"/>
-                    {/* Bell Tower & Flag */}
-                    <rect x="14" y="1" width="4" height="4" fill="#F4C662" />
-                    <polygon points="14,1 18,3 14,5" fill="#8B1C3F"/>
-                    {/* Entrance Door */}
-                    <rect x="13" y="20" width="6" height="9" rx="1" fill="#FFFFFF"/>
-                    {/* Windows */}
-                    <rect x="8" y="17" width="3" height="4" rx="0.5" fill="#FFFFFF" opacity="0.9"/>
-                    <rect x="21" y="17" width="3" height="4" rx="0.5" fill="#FFFFFF" opacity="0.9"/>
-                    <circle cx="16" cy="10" r="2" fill="#FFFFFF"/>
-                  </svg>
-                </div>
+                <School size={16} />
               </div>
             </Marker>
           )}
@@ -1607,45 +1452,19 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
           background: rgba(255, 255, 255, 0.98);
         }
 
-        .school-logo-destination {
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          cursor: pointer;
-          filter: drop-shadow(0 4px 10px rgba(139, 28, 63, 0.45));
-          animation: schoolFloat 2.5s infinite ease-in-out;
-          pointer-events: auto;
-          user-select: none;
-        }
-
-        @keyframes schoolFloat {
-          0%, 100% {
-            transform: translateY(0);
-          }
-          50% {
-            transform: translateY(-5px);
-          }
-        }
-
-        .school-logo-badge {
-          background: #8B1C3F;
-          color: #FFFFFF;
-          font-size: 11px;
-          font-weight: 800;
-          padding: 3px 10px;
-          border-radius: 12px;
-          white-space: nowrap;
-          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.28);
-          margin-bottom: 3px;
-          letter-spacing: 0.2px;
-          border: 1px solid rgba(255, 255, 255, 0.4);
-        }
-
-        .school-logo-icon {
+        .school-marker {
+          width: 32px;
+          height: 32px;
           display: flex;
           align-items: center;
           justify-content: center;
-          line-height: 0;
+          border-radius: 50%;
+          background: rgba(255, 255, 255, 0.6);
+          color: var(--maroon);
+          border: 2px solid var(--gold);
+          box-shadow: 0 4px 12px rgba(44, 24, 16, 0.15);
+          opacity: 0.65;
+          pointer-events: none;
         }
 
         @media (max-width: 760px) {
