@@ -9,6 +9,7 @@ import { useVehicleStore, Vehicle } from '@/js/store/vehicleStore';
 import { useQuery } from '@tanstack/react-query';
 import { INDONESIA_514_REGIONS, resolveSppgLocation, normalizeRegionName } from '@/js/data/indonesia_regions';
 import VehicleService, { VEHICLE_STATUS_META } from '@/js/services/VehicleService';
+import { createFallbackRoute, isValidRoute } from '@/js/utils/routing';
 import { AlertTriangle, MapPin, Navigation, School, Trash2, User, X, Zap } from 'lucide-react';
 import { supabase } from '@/js/core/SupabaseClient';
 import { queryKeys } from '@/src/lib/queryKeys';
@@ -306,32 +307,71 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
   }, [filteredVehicles, sppgUnits, selectedCity, offshoreMarkerIds]);
 
   const schoolsGeoJSON = useMemo<FeatureCollection>(() => {
-    if (filteredVehicles.length === 0) {
+    if (filteredVehicles.length === 0 && schools.length === 0) {
       return { type: 'FeatureCollection', features: [] };
     }
 
     const normSelected = normalizeRegionName(selectedCity);
+    const schoolMap = new Map<string, { name: string; province?: string; city?: string; lng: number; lat: number }>();
+
+    // 1. Ingest schools from Supabase infrastructure query if coordinates are valid
+    for (const s of schools) {
+      if (Number.isFinite(s.lng) && Number.isFinite(s.lat) && !offshoreMarkerIds.has(`school:${s.id ?? s.name}`)) {
+        if (selectedCity !== 'Semua') {
+          const norm = normalizeRegionName(s.city || s.province);
+          if (norm !== normSelected && normalizeRegionName(s.province) !== normSelected) continue;
+        }
+        schoolMap.set(s.name, {
+          name: s.name,
+          province: s.province,
+          city: s.city,
+          lng: s.lng,
+          lat: s.lat,
+        });
+      }
+    }
+
+    // 2. HYBRID FALLBACK: Ingest schools from active vehicles' destinations!
+    // Guarantees schools are NEVER missing even if schools table has null lat/lng or demo mode
+    for (const v of vehicles) {
+      if (selectedCity !== 'Semua' && normalizeRegionName(v.city) !== normSelected) continue;
+      if (v.destination_lat != null && v.destination_lng != null
+        && Number.isFinite(v.destination_lat) && Number.isFinite(v.destination_lng)) {
+        const name = v.destination_school_name || `Sekolah ${v.city}`;
+        if (!schoolMap.has(name) || !Number.isFinite(schoolMap.get(name)?.lat)) {
+          schoolMap.set(name, {
+            name,
+            city: v.city,
+            lng: v.destination_lng,
+            lat: v.destination_lat,
+          });
+        }
+      }
+    }
+
     return {
       type: 'FeatureCollection',
-      features: schools
-        .filter(s => {
-          if (selectedCity === 'Semua') return true;
-          const norm = normalizeRegionName(s.city || s.province);
-          return norm === normSelected || normalizeRegionName(s.province) === normSelected;
-        })
-        .filter(s => Number.isFinite(s.lng) && Number.isFinite(s.lat) && !offshoreMarkerIds.has(`school:${s.id ?? s.name}`))
-        .map(s => ({
-          type: 'Feature',
-          geometry: { type: 'Point', coordinates: [s.lng, s.lat] },
-          properties: { name: s.name, province: s.province }
-        }))
+      features: Array.from(schoolMap.values()).map(s => ({
+        type: 'Feature',
+        geometry: { type: 'Point', coordinates: [s.lng, s.lat] },
+        properties: { name: s.name, province: s.province, city: s.city }
+      }))
     };
-  }, [schools, selectedCity, filteredVehicles.length, offshoreMarkerIds]);
+  }, [schools, vehicles, selectedCity, filteredVehicles.length, offshoreMarkerIds]);
 
   const activeVehicleId = popupInfo?.id || selectedVehicle?.id;
-  const activeVehicle = activeVehicleId
-    ? vehicles.find(vehicle => vehicle.id === activeVehicleId) || popupInfo || selectedVehicle || null
-    : null;
+  const activeVehicle = useMemo(() => {
+    if (!activeVehicleId) return null;
+    const storeVeh = vehicles.find(v => v.id === activeVehicleId);
+    const candidate = (popupInfo?.id === activeVehicleId ? popupInfo : null) || selectedVehicle;
+    return {
+      ...(candidate ?? {}),
+      ...(storeVeh ?? {}),
+      destination_lat: storeVeh?.destination_lat ?? candidate?.destination_lat ?? null,
+      destination_lng: storeVeh?.destination_lng ?? candidate?.destination_lng ?? null,
+      destination_school_name: storeVeh?.destination_school_name ?? candidate?.destination_school_name ?? null,
+    } as Vehicle;
+  }, [activeVehicleId, vehicles, popupInfo, selectedVehicle]);
 
   // --- 60FPS ANIMATION ENGINE (High Performance) ---
   const animationRef = useRef<number>(0);
@@ -556,12 +596,19 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
       return;
     }
     
-    if (!mapRef.current || !hasMapboxToken) return;
-    if (selectedVehicle.last_lng === null || selectedVehicle.last_lat === null) return;
-
     setPopupInfo(selectedVehicle);
-    fitSelectedVehicle(selectedVehicle);
-  }, [hasMapboxToken, selectedVehicle]);
+
+    if (mapRef.current && selectedVehicle.last_lng !== null && selectedVehicle.last_lat !== null) {
+      fitSelectedVehicle(selectedVehicle);
+    }
+
+    // Asynchronously enhance route in background without blocking visual display
+    if (hasMapboxToken && !hasCurrentRoadRoute(selectedVehicle)) {
+      applyVerifiedRoute(selectedVehicle).catch(err => {
+        console.warn('Could not road-snap route on selection:', err);
+      });
+    }
+  }, [hasMapboxToken, selectedVehicle, hasCurrentRoadRoute, applyVerifiedRoute]);
 
   useEffect(() => {
     return () => VehicleService.stopSimulation();
@@ -665,6 +712,61 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
       map.addImage('icon-warehouse', hubData);
     }
 
+    // Load School Icon (Red & Gold Schoolhouse Badge)
+    const schoolSize = 48;
+    const schoolCanvas = document.createElement('canvas');
+    schoolCanvas.width = schoolSize;
+    schoolCanvas.height = schoolSize;
+    const schoolCtx = schoolCanvas.getContext('2d');
+    if (schoolCtx) {
+      const c = schoolSize / 2;
+      schoolCtx.shadowColor = 'rgba(0,0,0,0.25)';
+      schoolCtx.shadowBlur = 4;
+
+      // School building main block
+      schoolCtx.fillStyle = '#ff5252'; // Vibrant School Red
+      schoolCtx.fillRect(c - 15, c - 2, 30, 16);
+
+      // Triangular Roof / Gable
+      schoolCtx.beginPath();
+      schoolCtx.moveTo(c - 18, c - 2);
+      schoolCtx.lineTo(c, c - 14);
+      schoolCtx.lineTo(c + 18, c - 2);
+      schoolCtx.closePath();
+      schoolCtx.fillStyle = '#c62828';
+      schoolCtx.fill();
+
+      // Bell Tower / Flag atop roof
+      schoolCtx.fillStyle = '#F4C662'; // Gold
+      schoolCtx.fillRect(c - 3, c - 20, 6, 7);
+      schoolCtx.beginPath();
+      schoolCtx.moveTo(c - 4, c - 20);
+      schoolCtx.lineTo(c, c - 24);
+      schoolCtx.lineTo(c + 4, c - 20);
+      schoolCtx.closePath();
+      schoolCtx.fillStyle = '#8B1C3F';
+      schoolCtx.fill();
+
+      // Entrance Door
+      schoolCtx.fillStyle = '#FFFFFF';
+      schoolCtx.fillRect(c - 3, c + 6, 6, 8);
+
+      // Windows
+      schoolCtx.fillRect(c - 11, c + 2, 5, 5);
+      schoolCtx.fillRect(c + 6, c + 2, 5, 5);
+
+      // Clock / Circle in gable
+      schoolCtx.beginPath();
+      schoolCtx.arc(c, c - 6, 2.5, 0, Math.PI * 2);
+      schoolCtx.fillStyle = '#FFFFFF';
+      schoolCtx.fill();
+
+      const schoolData = schoolCtx.getImageData(0, 0, schoolSize, schoolSize);
+      if (!map.hasImage('icon-school')) {
+        map.addImage('icon-school', schoolData);
+      }
+    }
+
     // --- MANUAL FLEET LAYER INJECTION (Bypass React) ---
     if (!map.getSource('fleet-source')) {
       map.addSource('fleet-source', {
@@ -727,20 +829,55 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
     // Find the LATEST version of this vehicle from the main fleet list
     const vehicle = vehicles.find(v => v.id === selected.id) || selected;
     
-    if (vehicle.last_lng === null || vehicle.last_lat === null) return null;
+    // Resolve starting origin coordinates
+    let startLng = vehicle.last_lng;
+    let startLat = vehicle.last_lat;
 
-    if (!vehicle.route_geometry || vehicle.route_geometry.length < 2) return null;
-
-    let route = vehicle.route_geometry?.filter(coord => Array.isArray(coord) && coord.length >= 2) ?? [];
-
-    if (route.length > 1 && vehicle.route_progress !== null && vehicle.route_progress !== undefined) {
-      const progressIndex = Math.max(0, Math.floor(vehicle.route_progress));
-      route = route.slice(Math.min(progressIndex, route.length - 1));
+    if (vehicle.status === 'idle') {
+      const sppg = resolveSppgLocation(vehicle.city, sppgUnits, {
+        vehicleLat: vehicle.last_lat,
+        vehicleLng: vehicle.last_lng,
+      });
+      if (sppg) {
+        startLng = sppg.lng;
+        startLat = sppg.lat;
+      }
     }
 
-    const coordinates: [number, number][] = [[vehicle.last_lng, vehicle.last_lat]];
+    if (startLng == null || startLat == null) return null;
+
+    const destLng = vehicle.destination_lng;
+    const destLat = vehicle.destination_lat;
+
+    let route: number[][] = [];
+
+    // Check if vehicle already has a valid polyline route
+    if (isValidRoute(vehicle.route_geometry)) {
+      route = vehicle.route_geometry.filter(coord => Array.isArray(coord) && coord.length >= 2);
+      if (route.length > 1 && vehicle.route_progress !== null && vehicle.route_progress !== undefined) {
+        const progressIndex = Math.max(0, Math.floor(vehicle.route_progress));
+        route = route.slice(Math.min(progressIndex, route.length - 1));
+      }
+    } else if (destLng != null && destLat != null) {
+      // INSTANT ROUTE ON CLICK (0ms latency: immediately appears before simulation starts!)
+      route = createFallbackRoute(
+        { lng: startLng, lat: startLat },
+        { lng: destLng, lat: destLat }
+      );
+    }
+
+    const coordinates: [number, number][] = [[startLng, startLat]];
     if (route.length > 0) {
-      coordinates.push(...route.map(coord => [coord[0], coord[1]] as [number, number]));
+      for (const coord of route) {
+        if (coord && Number.isFinite(coord[0]) && Number.isFinite(coord[1])) {
+          const isDup = Math.hypot(coord[0] - startLng, coord[1] - startLat) < 0.00001;
+          if (!isDup) {
+            coordinates.push([coord[0], coord[1]]);
+          }
+        }
+      }
+    } else if (destLng != null && destLat != null) {
+      coordinates.push([destLng, destLat]);
     }
 
     if (coordinates.length < 2) return null;
@@ -756,7 +893,7 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
         properties: {}
       }]
     };
-  }, [popupInfo, selectedVehicle, vehicles]);
+  }, [popupInfo, selectedVehicle, vehicles, sppgUnits]);
 
   // --- LAYER ORDERING: Ensure fleet is ALWAYS on top ---
   useEffect(() => {
@@ -873,6 +1010,45 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
       'text-color': '#1b5e20',
       'text-halo-color': '#ffffff',
       'text-halo-width': 1,
+      'text-opacity': [
+        'interpolate', ['linear'], ['zoom'],
+        11, 0,
+        12, 1
+      ]
+    }
+  };
+
+  const schoolsLayerStyle: any = {
+    id: 'schools-layer',
+    type: 'symbol',
+    beforeId: 'fleet-layer',
+    layout: {
+      'icon-image': 'icon-school',
+      'icon-size': [
+        'interpolate', ['linear'], ['zoom'], 
+        8, 0.35, 
+        12, 0.55, 
+        15, 0.75,
+        18, 0.5
+      ],
+      'icon-allow-overlap': true
+    }
+  };
+
+  const schoolsLabelLayerStyle: any = {
+    id: 'schools-label-layer',
+    type: 'symbol',
+    layout: {
+      'text-field': ['get', 'name'],
+      'text-font': ['Open Sans Bold', 'Arial Unicode MS Bold'],
+      'text-size': 10,
+      'text-offset': [0, 1.8],
+      'text-anchor': 'top',
+    },
+    paint: {
+      'text-color': '#c62828',
+      'text-halo-color': '#ffffff',
+      'text-halo-width': 1.5,
       'text-opacity': [
         'interpolate', ['linear'], ['zoom'],
         11, 0,
@@ -998,17 +1174,8 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
 
           {schoolsGeoJSON && (
             <Source id="schools-source" type="geojson" data={schoolsGeoJSON}>
-              <Layer 
-                id="schools-layer" 
-                type="circle" 
-                paint={{
-                  'circle-radius': 3,
-                  'circle-color': '#ff5252',
-                  'circle-stroke-width': 1,
-                  'circle-stroke-color': '#fff',
-                  'circle-opacity': 0.45
-                }} 
-              />
+              <Layer {...schoolsLayerStyle} />
+              <Layer {...schoolsLabelLayerStyle} />
             </Source>
           )}
 
@@ -1020,8 +1187,14 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
               latitude={activeVehicle.destination_lat}
               anchor="center"
             >
-              <div className="school-marker">
-                <School size={16} />
+              <div 
+                className="school-marker active" 
+                title={activeVehicle.destination_school_name || 'Sekolah Penerima'}
+              >
+                <span className="school-marker-badge">
+                  {activeVehicle.destination_school_name || 'Sekolah Tujuan'}
+                </span>
+                <School size={18} />
               </div>
             </Marker>
           )}
@@ -1342,18 +1515,49 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
         }
 
         .school-marker {
-          width: 32px;
-          height: 32px;
+          position: relative;
+          width: 36px;
+          height: 36px;
           display: flex;
           align-items: center;
           justify-content: center;
           border-radius: 50%;
-          background: rgba(255, 255, 255, 0.6);
-          color: var(--maroon);
-          border: 2px solid var(--gold);
-          box-shadow: 0 4px 12px rgba(44, 24, 16, 0.15);
-          opacity: 0.65;
+          background: #ffffff;
+          color: #c62828;
+          border: 2.5px solid #ff5252;
+          box-shadow: 0 4px 14px rgba(198, 40, 40, 0.4), 0 0 0 3px rgba(255, 82, 82, 0.25);
+          cursor: pointer;
+          z-index: 20;
+          animation: schoolPulse 2s infinite ease-in-out;
+        }
+
+        @keyframes schoolPulse {
+          0% {
+            box-shadow: 0 4px 14px rgba(198, 40, 40, 0.4), 0 0 0 0 rgba(255, 82, 82, 0.5);
+          }
+          70% {
+            box-shadow: 0 4px 14px rgba(198, 40, 40, 0.4), 0 0 0 10px rgba(255, 82, 82, 0);
+          }
+          100% {
+            box-shadow: 0 4px 14px rgba(198, 40, 40, 0.4), 0 0 0 0 rgba(255, 82, 82, 0);
+          }
+        }
+
+        .school-marker-badge {
+          position: absolute;
+          bottom: 40px;
+          left: 50%;
+          transform: translateX(-50%);
+          background: #c62828;
+          color: #ffffff;
+          font-size: 11px;
+          font-weight: 700;
+          padding: 3px 9px;
+          border-radius: 12px;
+          white-space: nowrap;
+          box-shadow: 0 3px 10px rgba(0, 0, 0, 0.25);
           pointer-events: none;
+          letter-spacing: 0.2px;
         }
 
         @media (max-width: 760px) {

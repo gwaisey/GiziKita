@@ -277,8 +277,8 @@ class VehicleService {
 
           const school = {
             name: `Sekolah Bina Gizi ${region.name} #${i + 1}`,
-            lat: null,
-            lng: null,
+            lat: destination.lat,
+            lng: destination.lng,
             city: region.name,
             province: region.province,
             pupils: 300,

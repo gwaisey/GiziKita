@@ -58,4 +58,20 @@ describe('VehicleMap Component', () => {
     expect(screen.getByText('B 1234 BGN')).toBeInTheDocument();
     expect(screen.getByText('Pak Andi')).toBeInTheDocument();
   });
+
+  it('renders destination school marker and badge when vehicle with destination is selected', () => {
+    const vehicleWithSchool: Vehicle = {
+      ...mockVehicles[0],
+      destination_lat: -6.22,
+      destination_lng: 106.86,
+      destination_school_name: 'SDN Menteng 01 Pagi',
+    };
+
+    renderWithQueryClient(<VehicleMap selectedVehicle={vehicleWithSchool} />);
+
+    // Verify school destination badge and panel info are rendered
+    const elements = screen.getAllByText('SDN Menteng 01 Pagi');
+    expect(elements.length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByTitle('SDN Menteng 01 Pagi')).toBeInTheDocument();
+  });
 });
