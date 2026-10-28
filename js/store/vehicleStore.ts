@@ -53,17 +53,21 @@ let localSimulationActive = false;
 export const setLocalSimulationActive = (active: boolean) => { localSimulationActive = active; };
 export const isLocalSimulationActive = () => localSimulationActive;
 
+export type FleetFilterCategory = 'all' | 'moving' | 'unloading' | 'idle' | 'other';
+
 interface VehicleState {
   vehicles: Vehicle[];
   loading: boolean;
   error: string | null;
   selectedCity: string;
+  selectedCategory: FleetFilterCategory;
   hasDemoData: boolean; // Tracking if demo data is currently seeded
   actions: {
     loadVehicles: () => Promise<Vehicle[]>;
     invalidatePendingLoads: () => void;
     subscribeRealtime: () => (() => void);
     setSelectedCity: (city: string) => void;
+    setSelectedCategory: (category: FleetFilterCategory) => void;
     setHasDemoData: (val: boolean) => void;
   };
 }
@@ -74,9 +78,11 @@ export const useVehicleStore = create<VehicleState>()(
     loading: false,
     error: null,
     selectedCity: 'Semua',
+    selectedCategory: 'all',
     hasDemoData: false,
     actions: {
       setSelectedCity: (city: string) => set({ selectedCity: city }),
+      setSelectedCategory: (category: FleetFilterCategory) => set({ selectedCategory: category }),
       setHasDemoData: (val: boolean) => set({ hasDemoData: val }),
       invalidatePendingLoads: () => { vehicleLoadGeneration += 1; },
       loadVehicles: async () => {

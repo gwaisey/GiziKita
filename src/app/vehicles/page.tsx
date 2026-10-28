@@ -6,6 +6,7 @@ import { MapPin, MapPinOff, Truck, AlertTriangle, Clock, Wrench, WifiOff } from 
 import { useAuthStore } from '@/js/store/authStore';
 import { useVehicleStore, Vehicle, VehicleStatus } from '@/js/store/vehicleStore';
 import { VEHICLE_STATUS_META } from '@/js/services/VehicleService';
+import { STATUS_TO_CATEGORY } from '@/js/utils/vehicleStatus';
 
 import VehicleStats from '@/src/components/VehicleStats';
 import RegionFilter from '@/src/components/RegionFilter';
@@ -56,12 +57,20 @@ export default function VehiclesPage() {
     }
   }, [vehicles, selectedVehicle]);
 
-  // Filter vehicles based on selected city
+  const selectedCategory = useVehicleStore((state) => state.selectedCategory);
+  const setSelectedCategory = useVehicleStore((state) => state.actions.setSelectedCategory);
+
+  // Filter vehicles based on selected city and selected category
   const filteredList = useMemo(() => {
-    return selectedCity === 'Semua' 
+    let list = selectedCity === 'Semua' 
       ? vehicles 
       : vehicles.filter(v => v.city === selectedCity);
-  }, [vehicles, selectedCity]);
+
+    if (selectedCategory && selectedCategory !== 'all') {
+      list = list.filter(v => STATUS_TO_CATEGORY[v.status] === selectedCategory);
+    }
+    return list;
+  }, [vehicles, selectedCity, selectedCategory]);
 
   // Auth guard: redirect or show message if not logged in
   if (!currentUser) {
@@ -101,7 +110,7 @@ export default function VehiclesPage() {
 
       {/* Stats & Filtering */}
       <div className="vehicles-control-panel">
-        <VehicleStats />
+        <VehicleStats onVehicleSelect={setSelectedVehicle} />
         <RegionFilter />
       </div>
 
@@ -116,7 +125,45 @@ export default function VehiclesPage() {
 
         {/* Sidebar: vehicle list */}
         <aside className="vehicles-sidebar">
-          <h3 className="sidebar-title">Daftar Kendaraan</h3>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+            <h3 className="sidebar-title" style={{ margin: 0 }}>Daftar Kendaraan</h3>
+            {selectedCategory !== 'all' && (
+              <button 
+                type="button" 
+                onClick={() => setSelectedCategory('all')}
+                style={{ 
+                  fontSize: '11px', 
+                  fontWeight: 700, 
+                  color: 'var(--maroon)', 
+                  background: 'rgba(139, 28, 63, 0.08)',
+                  border: 'none', 
+                  borderRadius: '6px', 
+                  padding: '3px 8px', 
+                  cursor: 'pointer' 
+                }}
+              >
+                Reset Filter &times;
+              </button>
+            )}
+          </div>
+          {selectedCategory !== 'all' && (
+            <div style={{ 
+              marginBottom: 12, 
+              padding: '6px 10px', 
+              borderRadius: '8px', 
+              fontSize: '11px', 
+              fontWeight: 700, 
+              background: 'rgba(139, 28, 63, 0.05)', 
+              color: 'var(--maroon)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between'
+            }}>
+              <span>
+                Filter: <strong>{selectedCategory === 'moving' ? 'Sedang Jalan' : selectedCategory === 'unloading' ? 'Menurunkan' : 'Siaga / Idle'}</strong> ({filteredList.length})
+              </span>
+            </div>
+          )}
           <div className="vehicle-list">
             {vehicleLoading && filteredList.length === 0 ? (
               <div className="vehicle-list-empty">Memuat kendaraan...</div>
