@@ -74,4 +74,20 @@ describe('VehicleMap Component', () => {
     expect(elements.length).toBeGreaterThanOrEqual(1);
     expect(screen.getByTitle('SDN Menteng 01 Pagi')).toBeInTheDocument();
   });
+
+  it('auto-recovers and renders destination school marker even if destination_lat and destination_lng are null in vehicle data', () => {
+    const vehicleWithNullDest: Vehicle = {
+      ...mockVehicles[0],
+      city: 'Jakarta Pusat',
+      destination_lat: null,
+      destination_lng: null,
+      destination_school_name: null,
+    };
+
+    renderWithQueryClient(<VehicleMap selectedVehicle={vehicleWithNullDest} />);
+
+    // Should auto-resolve to a valid school marker with title containing Sekolah
+    const marker = screen.getByTitle(/Sekolah Penerima/i);
+    expect(marker).toBeInTheDocument();
+  });
 });

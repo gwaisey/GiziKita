@@ -58,3 +58,62 @@ export function createFallbackRoute(
   const p3 = [p1[0] + dLng * 0.66 - offLng, p1[1] + dLat * 0.66 - offLat];
   return [p1, p2, p3, p4];
 }
+
+export interface ResolvedDestination {
+  name: string;
+  lat: number;
+  lng: number;
+}
+
+/**
+ * Deterministically resolves valid destination school coordinates and name for any vehicle.
+ * Ensures the destination is NEVER null or invalid under any circumstances.
+ */
+export function resolveVehicleDestination(
+  vehicle: {
+    id?: string;
+    city?: string;
+    last_lat?: number | null;
+    last_lng?: number | null;
+    destination_lat?: number | null;
+    destination_lng?: number | null;
+    destination_school_name?: string | null;
+    route_geometry?: number[][] | null;
+  },
+  sppgFallback?: { lat: number; lng: number } | null
+): ResolvedDestination {
+  const name = vehicle.destination_school_name || (vehicle.city ? `Sekolah Penerima ${vehicle.city}` : 'Sekolah Penerima');
+
+  // 1. Direct verified destination coordinates
+  if (
+    vehicle.destination_lat != null &&
+    vehicle.destination_lng != null &&
+    Number.isFinite(vehicle.destination_lat) &&
+    Number.isFinite(vehicle.destination_lng)
+  ) {
+    return { name, lat: vehicle.destination_lat, lng: vehicle.destination_lng };
+  }
+
+  // 2. Extract from route endpoint if route geometry exists
+  if (isValidRoute(vehicle.route_geometry)) {
+    const lastPoint = vehicle.route_geometry[vehicle.route_geometry.length - 1];
+    if (isValidCoord(lastPoint)) {
+      return { name, lat: lastPoint[1], lng: lastPoint[0] };
+    }
+  }
+
+  // 3. Deterministic regional offset from SPPG or vehicle position
+  const baseLat = sppgFallback?.lat ?? (Number.isFinite(vehicle.last_lat) ? (vehicle.last_lat as number) : -6.2);
+  const baseLng = sppgFallback?.lng ?? (Number.isFinite(vehicle.last_lng) ? (vehicle.last_lng as number) : 106.8);
+
+  const idStr = vehicle.id || vehicle.city || 'default';
+  const hash = Math.abs(idStr.split('').reduce((acc, c) => acc + c.charCodeAt(0), 0));
+  const angle = ((hash % 16) / 16) * Math.PI * 2;
+  const radius = 0.015 + ((hash % 5) * 0.003); // ~1.6km - 2.8km
+
+  return {
+    name,
+    lat: baseLat + Math.sin(angle) * radius,
+    lng: baseLng + Math.cos(angle) * radius,
+  };
+}

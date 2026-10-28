@@ -9,7 +9,7 @@ import { useVehicleStore, Vehicle } from '@/js/store/vehicleStore';
 import { useQuery } from '@tanstack/react-query';
 import { INDONESIA_514_REGIONS, resolveSppgLocation, normalizeRegionName } from '@/js/data/indonesia_regions';
 import VehicleService, { VEHICLE_STATUS_META } from '@/js/services/VehicleService';
-import { createFallbackRoute, isValidRoute } from '@/js/utils/routing';
+import { createFallbackRoute, isValidRoute, resolveVehicleDestination } from '@/js/utils/routing';
 import { AlertTriangle, MapPin, Navigation, School, Trash2, User, X, Zap } from 'lucide-react';
 import { supabase } from '@/js/core/SupabaseClient';
 import { queryKeys } from '@/src/lib/queryKeys';
@@ -19,6 +19,10 @@ const INDONESIA_CENTER = { latitude: -2.5, longitude: 118.0 };
 const SELECTED_ROUTE_SOURCE_ID = 'selected-vehicle-route';
 const SELECTED_ROUTE_CASE_LAYER_ID = 'selected-vehicle-route-case';
 const SELECTED_ROUTE_LAYER_ID = 'selected-vehicle-route-line';
+
+const SELECTED_SCHOOL_SOURCE_ID = 'selected-school-source';
+const SELECTED_SCHOOL_LAYER_ID = 'selected-school-layer';
+const SELECTED_SCHOOL_LABEL_LAYER_ID = 'selected-school-label-layer';
 
 interface VehicleMapProps {
   onVehicleSelect?: (vehicle: Vehicle | null) => void;
@@ -335,17 +339,18 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
     // Guarantees schools are NEVER missing even if schools table has null lat/lng or demo mode
     for (const v of vehicles) {
       if (selectedCity !== 'Semua' && normalizeRegionName(v.city) !== normSelected) continue;
-      if (v.destination_lat != null && v.destination_lng != null
-        && Number.isFinite(v.destination_lat) && Number.isFinite(v.destination_lng)) {
-        const name = v.destination_school_name || `Sekolah ${v.city}`;
-        if (!schoolMap.has(name) || !Number.isFinite(schoolMap.get(name)?.lat)) {
-          schoolMap.set(name, {
-            name,
-            city: v.city,
-            lng: v.destination_lng,
-            lat: v.destination_lat,
-          });
-        }
+      const sppg = resolveSppgLocation(v.city, sppgUnits, {
+        vehicleLat: v.last_lat,
+        vehicleLng: v.last_lng,
+      });
+      const resolved = resolveVehicleDestination(v, sppg);
+      if (!schoolMap.has(resolved.name) || !Number.isFinite(schoolMap.get(resolved.name)?.lat)) {
+        schoolMap.set(resolved.name, {
+          name: resolved.name,
+          city: v.city,
+          lng: resolved.lng,
+          lat: resolved.lat,
+        });
       }
     }
 
@@ -357,21 +362,54 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
         properties: { name: s.name, province: s.province, city: s.city }
       }))
     };
-  }, [schools, vehicles, selectedCity, filteredVehicles.length, offshoreMarkerIds]);
+  }, [schools, vehicles, selectedCity, filteredVehicles.length, offshoreMarkerIds, sppgUnits]);
 
   const activeVehicleId = popupInfo?.id || selectedVehicle?.id;
   const activeVehicle = useMemo(() => {
     if (!activeVehicleId) return null;
     const storeVeh = vehicles.find(v => v.id === activeVehicleId);
     const candidate = (popupInfo?.id === activeVehicleId ? popupInfo : null) || selectedVehicle;
-    return {
+    const merged = {
       ...(candidate ?? {}),
       ...(storeVeh ?? {}),
       destination_lat: storeVeh?.destination_lat ?? candidate?.destination_lat ?? null,
       destination_lng: storeVeh?.destination_lng ?? candidate?.destination_lng ?? null,
       destination_school_name: storeVeh?.destination_school_name ?? candidate?.destination_school_name ?? null,
     } as Vehicle;
-  }, [activeVehicleId, vehicles, popupInfo, selectedVehicle]);
+
+    const sppg = resolveSppgLocation(merged.city, sppgUnits, {
+      vehicleLat: merged.last_lat,
+      vehicleLng: merged.last_lng,
+    });
+    const resolved = resolveVehicleDestination(merged, sppg);
+
+    return {
+      ...merged,
+      destination_lat: resolved.lat,
+      destination_lng: resolved.lng,
+      destination_school_name: resolved.name,
+    };
+  }, [activeVehicleId, vehicles, popupInfo, selectedVehicle, sppgUnits]);
+
+  // Selected vehicle destination school Point feature for direct WebGL rendering
+  const selectedSchoolGeoJSON = useMemo<FeatureCollection | null>(() => {
+    if (!activeVehicle || activeVehicle.destination_lng == null || activeVehicle.destination_lat == null) {
+      return null;
+    }
+    return {
+      type: 'FeatureCollection',
+      features: [{
+        type: 'Feature',
+        geometry: {
+          type: 'Point',
+          coordinates: [activeVehicle.destination_lng, activeVehicle.destination_lat]
+        },
+        properties: {
+          name: activeVehicle.destination_school_name || 'Sekolah Penerima'
+        }
+      }]
+    };
+  }, [activeVehicle]);
 
   // --- 60FPS ANIMATION ENGINE (High Performance) ---
   const animationRef = useRef<number>(0);
@@ -542,10 +580,16 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
   function fitSelectedVehicle(vehicle: Vehicle) {
     if (!mapRef.current || vehicle.last_lng === null || vehicle.last_lat === null) return;
 
-    const points: [number, number][] = [[vehicle.last_lng, vehicle.last_lat]];
-    if (vehicle.destination_lng !== null && vehicle.destination_lng !== undefined && vehicle.destination_lat !== null && vehicle.destination_lat !== undefined) {
-      points.push([vehicle.destination_lng, vehicle.destination_lat]);
-    }
+    const sppg = resolveSppgLocation(vehicle.city, sppgUnits, {
+      vehicleLat: vehicle.last_lat,
+      vehicleLng: vehicle.last_lng,
+    });
+    const dest = resolveVehicleDestination(vehicle, sppg);
+
+    const points: [number, number][] = [
+      [vehicle.last_lng, vehicle.last_lat],
+      [dest.lng, dest.lat],
+    ];
 
     const lngs = points.map(point => point[0]);
     const lats = points.map(point => point[1]);
@@ -833,21 +877,22 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
     let startLng = vehicle.last_lng;
     let startLat = vehicle.last_lat;
 
-    if (vehicle.status === 'idle') {
-      const sppg = resolveSppgLocation(vehicle.city, sppgUnits, {
-        vehicleLat: vehicle.last_lat,
-        vehicleLng: vehicle.last_lng,
-      });
-      if (sppg) {
-        startLng = sppg.lng;
-        startLat = sppg.lat;
-      }
+    const sppg = resolveSppgLocation(vehicle.city, sppgUnits, {
+      vehicleLat: vehicle.last_lat,
+      vehicleLng: vehicle.last_lng,
+    });
+
+    if (vehicle.status === 'idle' && sppg) {
+      startLng = sppg.lng;
+      startLat = sppg.lat;
     }
 
-    if (startLng == null || startLat == null) return null;
+    const resolved = resolveVehicleDestination(vehicle, sppg);
+    const destLng = resolved.lng;
+    const destLat = resolved.lat;
 
-    const destLng = vehicle.destination_lng;
-    const destLat = vehicle.destination_lat;
+    const originLng: number = startLng ?? sppg?.lng ?? (destLng - 0.015);
+    const originLat: number = startLat ?? sppg?.lat ?? (destLat - 0.015);
 
     let route: number[][] = [];
 
@@ -858,25 +903,25 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
         const progressIndex = Math.max(0, Math.floor(vehicle.route_progress));
         route = route.slice(Math.min(progressIndex, route.length - 1));
       }
-    } else if (destLng != null && destLat != null) {
+    } else {
       // INSTANT ROUTE ON CLICK (0ms latency: immediately appears before simulation starts!)
       route = createFallbackRoute(
-        { lng: startLng, lat: startLat },
+        { lng: originLng, lat: originLat },
         { lng: destLng, lat: destLat }
       );
     }
 
-    const coordinates: [number, number][] = [[startLng, startLat]];
+    const coordinates: [number, number][] = [[originLng, originLat]];
     if (route.length > 0) {
       for (const coord of route) {
         if (coord && Number.isFinite(coord[0]) && Number.isFinite(coord[1])) {
-          const isDup = Math.hypot(coord[0] - startLng, coord[1] - startLat) < 0.00001;
+          const isDup = Math.hypot(coord[0] - originLng, coord[1] - originLat) < 0.00001;
           if (!isDup) {
             coordinates.push([coord[0], coord[1]]);
           }
         }
       }
-    } else if (destLng != null && destLat != null) {
+    } else {
       coordinates.push([destLng, destLat]);
     }
 
@@ -1057,6 +1102,51 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
     }
   };
 
+  const selectedSchoolLayerStyle: any = {
+    id: SELECTED_SCHOOL_LAYER_ID,
+    type: 'symbol',
+    source: SELECTED_SCHOOL_SOURCE_ID,
+    layout: {
+      'icon-image': 'icon-school',
+      'icon-size': [
+        'interpolate', ['linear'], ['zoom'],
+        4, 0.45,
+        10, 0.7,
+        14, 0.9,
+        18, 0.7
+      ],
+      'icon-allow-overlap': true,
+      'icon-ignore-placement': true
+    }
+  };
+
+  const selectedSchoolLabelLayerStyle: any = {
+    id: SELECTED_SCHOOL_LABEL_LAYER_ID,
+    type: 'symbol',
+    source: SELECTED_SCHOOL_SOURCE_ID,
+    layout: {
+      'text-field': ['get', 'name'],
+      'text-font': ['Open Sans Bold', 'Arial Unicode MS Bold'],
+      'text-size': [
+        'interpolate', ['linear'], ['zoom'],
+        8, 9,
+        11, 11,
+        14, 13
+      ],
+      'text-offset': [0, 2.2],
+      'text-anchor': 'top',
+      'text-allow-overlap': true,
+      'text-ignore-placement': true
+    },
+    paint: {
+      'text-color': '#c62828',
+      'text-halo-color': '#ffffff',
+      'text-halo-width': 2.5,
+      'text-halo-blur': 0.5,
+      'text-opacity': 1
+    }
+  };
+
   const toggleSimulation = async () => {
     if (simulationActive) {
       VehicleService.stopSimulation();
@@ -1169,6 +1259,13 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
             <Source id={SELECTED_ROUTE_SOURCE_ID} type="geojson" data={selectedRouteGeoJSON}>
               <Layer {...routeCaseLayerStyle} />
               <Layer {...routeLayerStyle} />
+            </Source>
+          )}
+
+          {selectedSchoolGeoJSON && (
+            <Source id={SELECTED_SCHOOL_SOURCE_ID} type="geojson" data={selectedSchoolGeoJSON}>
+              <Layer {...selectedSchoolLayerStyle} />
+              <Layer {...selectedSchoolLabelLayerStyle} />
             </Source>
           )}
 
