@@ -59,7 +59,7 @@ describe('VehicleMap Component', () => {
     expect(screen.getByText('Pak Andi')).toBeInTheDocument();
   });
 
-  it('renders destination school info in SelectedVehiclePanel when vehicle with destination is selected', () => {
+  it('renders destination school logo and info when vehicle with destination is selected', () => {
     const vehicleWithSchool: Vehicle = {
       ...mockVehicles[0],
       destination_lat: -6.22,
@@ -69,8 +69,9 @@ describe('VehicleMap Component', () => {
 
     renderWithQueryClient(<VehicleMap selectedVehicle={vehicleWithSchool} />);
 
-    // Verify school destination info is rendered in panel
-    expect(screen.getByText('SDN Menteng 01 Pagi')).toBeInTheDocument();
+    // Verify school destination info is rendered in panel and logo badge
+    expect(screen.getAllByText('SDN Menteng 01 Pagi').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByTitle('SDN Menteng 01 Pagi')).toBeInTheDocument();
   });
 
   it('auto-recovers and resolves destination school even if destination_lat and destination_lng are null in vehicle data', () => {
@@ -84,7 +85,8 @@ describe('VehicleMap Component', () => {
 
     renderWithQueryClient(<VehicleMap selectedVehicle={vehicleWithNullDest} />);
 
-    // Should auto-resolve to a valid destination school in SelectedVehiclePanel
-    expect(screen.getByText('Sekolah Penerima Jakarta Pusat')).toBeInTheDocument();
+    // Should auto-resolve to a valid destination school in SelectedVehiclePanel and destination logo
+    expect(screen.getAllByText('Sekolah Penerima Jakarta Pusat').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByTitle(/Sekolah Penerima/i)).toBeInTheDocument();
   });
 });

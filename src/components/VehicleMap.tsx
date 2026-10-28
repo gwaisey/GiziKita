@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import MapGL, { NavigationControl, FullscreenControl, Source, Layer, MapRef } from 'react-map-gl/mapbox';
+import MapGL, { NavigationControl, FullscreenControl, Source, Layer, MapRef, Marker } from 'react-map-gl/mapbox';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import type { FeatureCollection, LineString } from 'geojson';
 import { useVehicleStore, Vehicle } from '@/js/store/vehicleStore';
@@ -413,6 +413,8 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
       }
     }
 
+    // Exclude active vehicle destination from WebGL layer so it is exclusively rendered
+    // by the prominent, dedicated School Logo <Marker> (guarantees exactly 1 icon, 0% duplication)
     const isDestinationOfActiveVehicle = (s: { name: string; lng: number; lat: number }) => {
       if (activeDestLng != null && activeDestLat != null) {
         if (Math.hypot(s.lng - activeDestLng, s.lat - activeDestLat) < 0.0008) return true;
@@ -421,21 +423,19 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
       return false;
     };
 
+    const displaySchools = schoolList.filter(s => !isDestinationOfActiveVehicle(s));
+
     return {
       type: 'FeatureCollection',
-      features: schoolList.map(s => {
-        const isSelected = isDestinationOfActiveVehicle(s) ? 1 : 0;
-        return {
-          type: 'Feature',
-          geometry: { type: 'Point', coordinates: [s.lng, s.lat] },
-          properties: {
-            name: s.name,
-            province: s.province,
-            city: s.city,
-            isSelected
-          }
-        };
-      })
+      features: displaySchools.map(s => ({
+        type: 'Feature',
+        geometry: { type: 'Point', coordinates: [s.lng, s.lat] },
+        properties: {
+          name: s.name,
+          province: s.province,
+          city: s.city,
+        }
+      }))
     };
   }, [schools, vehicles, selectedCity, filteredVehicles.length, offshoreMarkerIds, sppgUnits, activeVehicle]);
 
@@ -1094,34 +1094,17 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
   const schoolsLayerStyle: any = {
     id: 'schools-layer',
     type: 'symbol',
-    beforeId: 'fleet-layer',
     layout: {
       'icon-image': 'icon-school',
       'icon-size': [
-        'case',
-        ['==', ['get', 'isSelected'], 1],
-        [
-          'interpolate', ['linear'], ['zoom'],
-          4, 0.45,
-          8, 0.65,
-          12, 0.85,
-          15, 1.0,
-          18, 0.75
-        ],
-        [
-          'interpolate', ['linear'], ['zoom'], 
-          8, 0.35, 
-          12, 0.55, 
-          15, 0.75,
-          18, 0.5
-        ]
+        'interpolate', ['linear'], ['zoom'], 
+        8, 0.35, 
+        12, 0.55, 
+        15, 0.75,
+        18, 0.5
       ],
       'icon-allow-overlap': true,
       'icon-ignore-placement': true
-    },
-    paint: {
-      'icon-halo-color': ['case', ['==', ['get', 'isSelected'], 1], '#8B1C3F', 'rgba(255, 255, 255, 0)'],
-      'icon-halo-width': ['case', ['==', ['get', 'isSelected'], 1], 4, 0]
     }
   };
 
@@ -1131,35 +1114,19 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
     layout: {
       'text-field': ['get', 'name'],
       'text-font': ['Open Sans Bold', 'Arial Unicode MS Bold'],
-      'text-size': [
-        'case',
-        ['==', ['get', 'isSelected'], 1],
-        [
-          'interpolate', ['linear'], ['zoom'],
-          8, 11,
-          12, 13,
-          15, 15
-        ],
-        10
-      ],
+      'text-size': 10,
       'text-offset': [0, 1.8],
       'text-anchor': 'top',
-      'text-allow-overlap': true,
-      'text-ignore-placement': true
+      'text-allow-overlap': true
     },
     paint: {
-      'text-color': ['case', ['==', ['get', 'isSelected'], 1], '#8B1C3F', '#c62828'],
+      'text-color': '#c62828',
       'text-halo-color': '#ffffff',
-      'text-halo-width': ['case', ['==', ['get', 'isSelected'], 1], 3, 1.5],
+      'text-halo-width': 1.5,
       'text-opacity': [
-        'case',
-        ['==', ['get', 'isSelected'], 1],
-        1,
-        [
-          'interpolate', ['linear'], ['zoom'],
-          11, 0,
-          12, 1
-        ]
+        'interpolate', ['linear'], ['zoom'],
+        11, 0,
+        12, 1
       ]
     }
   };
@@ -1287,6 +1254,42 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
               <Layer {...schoolsLayerStyle} />
               <Layer {...schoolsLabelLayerStyle} />
             </Source>
+          )}
+
+          {/* Dedicated Single School Logo for the Active Vehicle's Destination (Pure Schoolhouse Logo, 0% Duplicate) */}
+          {activeVehicle &&
+            activeVehicle.destination_lng != null &&
+            activeVehicle.destination_lat != null && (
+            <Marker
+              longitude={activeVehicle.destination_lng}
+              latitude={activeVehicle.destination_lat}
+              anchor="bottom"
+            >
+              <div 
+                className="school-logo-destination" 
+                title={activeVehicle.destination_school_name || 'Sekolah Penerima'}
+              >
+                <span className="school-logo-badge">
+                  {activeVehicle.destination_school_name || 'Sekolah Tujuan'}
+                </span>
+                <div className="school-logo-icon">
+                  <svg width="34" height="34" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    {/* School Building Base */}
+                    <rect x="5" y="14" width="22" height="15" rx="2" fill="#C62828" stroke="#8B1C3F" strokeWidth="1.5"/>
+                    <polygon points="3,14 16,4 29,14" fill="#E53935" stroke="#8B1C3F" strokeWidth="1.5"/>
+                    {/* Bell Tower & Flag */}
+                    <rect x="14" y="1" width="4" height="4" fill="#F4C662" />
+                    <polygon points="14,1 18,3 14,5" fill="#8B1C3F"/>
+                    {/* Entrance Door */}
+                    <rect x="13" y="20" width="6" height="9" rx="1" fill="#FFFFFF"/>
+                    {/* Windows */}
+                    <rect x="8" y="17" width="3" height="4" rx="0.5" fill="#FFFFFF" opacity="0.9"/>
+                    <rect x="21" y="17" width="3" height="4" rx="0.5" fill="#FFFFFF" opacity="0.9"/>
+                    <circle cx="16" cy="10" r="2" fill="#FFFFFF"/>
+                  </svg>
+                </div>
+              </div>
+            </Marker>
           )}
 
           {/* WebGL Fleet is now managed manually via Mapbox API for 100% responsiveness */}
@@ -1604,7 +1607,46 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
           background: rgba(255, 255, 255, 0.98);
         }
 
+        .school-logo-destination {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          cursor: pointer;
+          filter: drop-shadow(0 4px 10px rgba(139, 28, 63, 0.45));
+          animation: schoolFloat 2.5s infinite ease-in-out;
+          pointer-events: auto;
+          user-select: none;
+        }
 
+        @keyframes schoolFloat {
+          0%, 100% {
+            transform: translateY(0);
+          }
+          50% {
+            transform: translateY(-5px);
+          }
+        }
+
+        .school-logo-badge {
+          background: #8B1C3F;
+          color: #FFFFFF;
+          font-size: 11px;
+          font-weight: 800;
+          padding: 3px 10px;
+          border-radius: 12px;
+          white-space: nowrap;
+          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.28);
+          margin-bottom: 3px;
+          letter-spacing: 0.2px;
+          border: 1px solid rgba(255, 255, 255, 0.4);
+        }
+
+        .school-logo-icon {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          line-height: 0;
+        }
 
         @media (max-width: 760px) {
           .vehicle-map-shell {
