@@ -1,7 +1,7 @@
 import { supabase } from '@/js/core/SupabaseClient';
 import { useVehicleStore, Vehicle, VehicleStatus, VerifiedDrivingRoute, setLocalSimulationActive } from '@/js/store/vehicleStore';
 import { resolveSppgLocation, normalizeRegionName } from '@/js/data/indonesia_regions';
-import { createFallbackRoute, isValidRoute } from '@/js/utils/routing';
+import { createFallbackRoute, isValidRoute, clampCoordinatesToLand } from '@/js/utils/routing';
 
 // Status metadata: labels, colours, descriptions
 export const VEHICLE_STATUS_META: Record<VehicleStatus, { label: string; color: string; description: string }> = {
@@ -268,12 +268,27 @@ class VehicleService {
           // Demo school coordinates are not published until Mapbox successfully
           // snaps a driving route endpoint to a road. A region centroid or a
           // random offset is not proof that a point lies on land.
-          const destinationRadius = 0.010 + Math.random() * 0.017;
-          const destinationAngle = Math.random() * Math.PI * 2;
-          const destination = {
+          const destinationRadius = 0.010 + Math.random() * 0.012;
+          const dLat = region.lat - station.lat;
+          const dLng = region.lng - station.lng;
+          const distToCenter = Math.hypot(dLat, dLng);
+
+          let destinationAngle: number;
+          if (distToCenter > 0.005) {
+            destinationAngle = Math.atan2(dLat, dLng) + (Math.random() - 0.5) * 1.0;
+          } else {
+            const normR = region.name.toLowerCase();
+            const isNorthCoast = normR.includes('jakarta') || normR.includes('surabaya') || normR.includes('semarang') || normR.includes('cirebon') || normR.includes('utara');
+            destinationAngle = isNorthCoast
+              ? -Math.PI / 2 + (Math.random() - 0.5) * 1.0
+              : Math.random() * Math.PI * 2;
+          }
+
+          const rawDest = {
             lng: station.lng + Math.cos(destinationAngle) * destinationRadius,
             lat: station.lat + Math.sin(destinationAngle) * destinationRadius,
           };
+          const destination = clampCoordinatesToLand(rawDest.lat, rawDest.lng, region.name);
 
           const school = {
             name: `Sekolah Bina Gizi ${region.name} #${i + 1}`,

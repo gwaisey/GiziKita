@@ -9,7 +9,7 @@ import { useVehicleStore, Vehicle } from '@/js/store/vehicleStore';
 import { useQuery } from '@tanstack/react-query';
 import { INDONESIA_514_REGIONS, resolveSppgLocation, normalizeRegionName } from '@/js/data/indonesia_regions';
 import VehicleService, { VEHICLE_STATUS_META } from '@/js/services/VehicleService';
-import { createFallbackRoute, isValidRoute, resolveVehicleDestination } from '@/js/utils/routing';
+import { createFallbackRoute, isValidRoute, resolveVehicleDestination, clampCoordinatesToLand } from '@/js/utils/routing';
 import { AlertTriangle, MapPin, Navigation, School, Trash2, User, X, Zap } from 'lucide-react';
 import { supabase } from '@/js/core/SupabaseClient';
 import { queryKeys } from '@/src/lib/queryKeys';
@@ -155,9 +155,15 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
     }
     if (startLng == null || startLat == null) return false;
 
+    const targetDest = clampCoordinatesToLand(
+      vehicle.destination_lat,
+      vehicle.destination_lng,
+      vehicle.city
+    );
+
     let activeRoute = await VehicleService.fetchMapboxRoute(
       [startLng, startLat],
-      [vehicle.destination_lng, vehicle.destination_lat],
+      [targetDest.lng, targetDest.lat],
       vehicle.id
     );
     if (!activeRoute) return false;
@@ -167,9 +173,10 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
     if (activeRoute.distance != null && activeRoute.distance < 800) {
       const probeAngles = [0, Math.PI / 2, Math.PI, (3 * Math.PI) / 2, Math.PI / 4, (3 * Math.PI) / 4];
       for (const angle of probeAngles) {
-        const altLng = startLng + Math.cos(angle) * 0.018; // ~2km
-        const altLat = startLat + Math.sin(angle) * 0.018;
-        const retryRoute = await VehicleService.fetchMapboxRoute([startLng, startLat], [altLng, altLat]);
+        const rawAltLng = startLng + Math.cos(angle) * 0.018; // ~2km
+        const rawAltLat = startLat + Math.sin(angle) * 0.018;
+        const clampedAlt = clampCoordinatesToLand(rawAltLat, rawAltLng, vehicle.city);
+        const retryRoute = await VehicleService.fetchMapboxRoute([startLng, startLat], [clampedAlt.lng, clampedAlt.lat]);
         if (retryRoute && retryRoute.distance != null && retryRoute.distance >= 1000) {
           activeRoute = retryRoute;
           break;
@@ -178,7 +185,10 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
     }
 
     await VehicleService.updateVehicleRoute(vehicle.id, activeRoute);
-    const [destinationLng, destinationLat] = activeRoute.coordinates[activeRoute.coordinates.length - 1];
+    const lastCoord = activeRoute.coordinates[activeRoute.coordinates.length - 1];
+    const clampedEnd = clampCoordinatesToLand(lastCoord[1], lastCoord[0], vehicle.city);
+    const destinationLng = clampedEnd.lng;
+    const destinationLat = clampedEnd.lat;
     queryClient.setQueryData(queryKeys.infrastructure, (current: any) => current && ({
       ...current,
       schools: current.schools.map((school: any) => school.name === vehicle.destination_school_name
@@ -349,12 +359,13 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
           const norm = normalizeRegionName(s.city || s.province);
           if (norm !== normSelected && normalizeRegionName(s.province) !== normSelected) continue;
         }
+        const clamped = clampCoordinatesToLand(s.lat, s.lng, s.city || s.province);
         schoolMap.set(s.name, {
           name: s.name,
           province: s.province,
           city: s.city,
-          lng: s.lng,
-          lat: s.lat,
+          lng: clamped.lng,
+          lat: clamped.lat,
         });
       }
     }
@@ -367,12 +378,13 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
         vehicleLng: v.last_lng,
       });
       const resolved = resolveVehicleDestination(v, sppg);
-      if (!schoolMap.has(resolved.name) && Number.isFinite(resolved.lng) && Number.isFinite(resolved.lat)) {
+      const clamped = clampCoordinatesToLand(resolved.lat, resolved.lng, v.city);
+      if (!schoolMap.has(resolved.name) && Number.isFinite(clamped.lng) && Number.isFinite(clamped.lat)) {
         schoolMap.set(resolved.name, {
           name: resolved.name,
           city: v.city,
-          lng: resolved.lng,
-          lat: resolved.lat,
+          lng: clamped.lng,
+          lat: clamped.lat,
         });
       }
     }
@@ -818,7 +830,13 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
     let route: number[][] = [];
 
     // Check if vehicle already has a valid polyline route
-    if (isValidRoute(vehicle.route_geometry)) {
+    const lastCoord = vehicle.route_geometry?.[vehicle.route_geometry.length - 1];
+    const isEndpointOffshore = lastCoord && (
+      clampCoordinatesToLand(lastCoord[1], lastCoord[0], vehicle.city).lat !== lastCoord[1] ||
+      clampCoordinatesToLand(lastCoord[1], lastCoord[0], vehicle.city).lng !== lastCoord[0]
+    );
+
+    if (isValidRoute(vehicle.route_geometry) && !isEndpointOffshore) {
       route = vehicle.route_geometry.filter(coord => Array.isArray(coord) && coord.length >= 2);
       if (route.length > 1 && vehicle.route_progress !== null && vehicle.route_progress !== undefined) {
         const progressIndex = Math.max(0, Math.floor(vehicle.route_progress));
@@ -842,6 +860,11 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
           }
         }
       }
+    }
+    
+    // Explicitly lock the endpoint to the verified land school destination
+    if (coordinates.length > 1) {
+      coordinates[coordinates.length - 1] = [destLng, destLat];
     } else {
       coordinates.push([destLng, destLat]);
     }

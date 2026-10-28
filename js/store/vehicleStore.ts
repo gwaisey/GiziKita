@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
 import { supabase } from '@/js/core/SupabaseClient';
 import NotificationService from '@/js/services/NotificationService';
-import { createFallbackRoute, degDistance, isValidRoute } from '@/js/utils/routing';
+import { createFallbackRoute, degDistance, isValidRoute, clampCoordinatesToLand } from '@/js/utils/routing';
 
 
 export type VehicleStatus =
@@ -118,18 +118,30 @@ export const useVehicleStore = create<VehicleState>()(
               const hasHub = sppgLng != null && sppgLat != null;
               const startsAtHub = hasRoute && (!hasHub
                 || degDistance(v.route_geometry![0], [sppgLng as number, sppgLat as number]) < 0.005);
-              const hasDestination = v.destination_lng != null && v.destination_lat != null
-                && Number.isFinite(v.destination_lng) && Number.isFinite(v.destination_lat);
+              let destLng = v.destination_lng;
+              let destLat = v.destination_lat;
+              let destWasClamped = false;
+              if (destLng != null && destLat != null && Number.isFinite(destLng) && Number.isFinite(destLat)) {
+                const clamped = clampCoordinatesToLand(destLat, destLng, v.city);
+                if (clamped.lat !== destLat || clamped.lng !== destLng) {
+                  destLat = clamped.lat;
+                  destLng = clamped.lng;
+                  destWasClamped = true;
+                }
+              }
+
+              const hasDestination = destLng != null && destLat != null
+                && Number.isFinite(destLng) && Number.isFinite(destLat);
 
               let routeGeometry = v.route_geometry;
               let routeSource = v.route_source;
-              if (!startsAtHub && hasHub) {
+              if ((!startsAtHub || destWasClamped) && hasHub) {
                 if (hasDestination) {
-                  // Stale / missing route: rebuild one that starts exactly at the hub
-                  // and ends exactly at this vehicle's own school.
+                  // Stale, offshore, or missing route: rebuild one that starts exactly at the hub
+                  // and ends safely on land at this vehicle's own school.
                   routeGeometry = createFallbackRoute(
                     { lng: sppgLng as number, lat: sppgLat as number },
-                    { lng: v.destination_lng as number, lat: v.destination_lat as number },
+                    { lng: destLng as number, lat: destLat as number },
                   );
                   routeSource = 'demo_unverified';
                 } else if (hasRoute) {
@@ -145,6 +157,8 @@ export const useVehicleStore = create<VehicleState>()(
                 route_progress: 0,
                 last_lng: sppgLng,
                 last_lat: sppgLat,
+                destination_lat: destLat,
+                destination_lng: destLng,
                 route_source: routeSource ?? 'demo_unverified',
               };
               if (routeGeometry !== undefined) {

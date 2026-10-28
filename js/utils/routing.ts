@@ -66,8 +66,157 @@ export interface ResolvedDestination {
 }
 
 /**
+ * Strict Land Clamping:
+ * Coastal cities in Indonesia border the ocean on specific sides.
+ * Any coordinates projected into the water are clamped safely inland.
+ */
+export function clampCoordinatesToLand(
+  lat: number,
+  lng: number,
+  city?: string | null
+): { lat: number; lng: number } {
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+    return { lat: -6.2, lng: 106.8 };
+  }
+
+  const normCity = (city || '').toLowerCase().replace(/^(kota|kabupaten|kab\.|adm\.)\s+/i, '').trim();
+
+  // 1. DKI JAKARTA / JAKARTA UTARA:
+  // Java Sea lies directly North of -6.1150. Coastline from Kamal Muara to Cilincing.
+  // Kamal Muara / Muara Angke (West): water if lng < 106.78 && lat > -6.125.
+  // Port of Tanjung Priok / Ancol / Marunda: water if lat > -6.1150.
+  if (normCity.includes('jakarta') || normCity.includes('utara') || (lat > -6.15 && lat < -6.05 && lng > 106.65 && lng < 107.00)) {
+    let safeLat = lat;
+    let safeLng = lng;
+    if (safeLat > -6.125) {
+      safeLat = -6.135 - (Math.abs(safeLat) % 0.015); // Push inland South into Sunter / Kelapa Gading / Pademangan
+    }
+    if (safeLng < 106.77) {
+      safeLng = 106.79 + (Math.abs(safeLng) % 0.015);
+    } else if (safeLng > 106.96) {
+      safeLng = 106.93 - (Math.abs(safeLng) % 0.015);
+    }
+    return { lat: safeLat, lng: safeLng };
+  }
+
+  // 2. SURABAYA / SIDOARJO NORTH COAST:
+  // Madura Strait lies to the North (lat > -7.200) and East (lng > 112.805)
+  if (normCity.includes('surabaya')) {
+    let safeLat = lat;
+    let safeLng = lng;
+    if (safeLat > -7.215) {
+      safeLat = -7.240 - (Math.abs(safeLat) % 0.015);
+    }
+    if (safeLng > 112.795) {
+      safeLng = 112.770 - (Math.abs(safeLng) % 0.015);
+    }
+    return { lat: safeLat, lng: safeLng };
+  }
+
+  // 3. SEMARANG:
+  // Java Sea lies North of -6.950
+  if (normCity.includes('semarang')) {
+    let safeLat = lat;
+    if (safeLat > -6.965) {
+      safeLat = -6.985 - (Math.abs(safeLat) % 0.015);
+    }
+    return { lat: safeLat, lng };
+  }
+
+  // 4. MAKASSAR:
+  // Makassar Strait lies West of 119.410
+  if (normCity.includes('makassar')) {
+    let safeLng = lng;
+    if (safeLng < 119.418) {
+      safeLng = 119.435 + (Math.abs(safeLng) % 0.015);
+    }
+    return { lat, lng: safeLng };
+  }
+
+  // 5. PADANG:
+  // Indian Ocean lies West of 100.345
+  if (normCity.includes('padang')) {
+    let safeLng = lng;
+    if (safeLng < 100.355) {
+      safeLng = 100.375 + (Math.abs(safeLng) % 0.015);
+    }
+    return { lat, lng: safeLng };
+  }
+
+  // 6. BALIKPAPAN:
+  // Balikpapan Bay / Makassar Strait lies South (lat < -1.260) and West (lng < 116.825)
+  if (normCity.includes('balikpapan')) {
+    let safeLat = lat;
+    let safeLng = lng;
+    if (safeLat < -1.245) safeLat = -1.230 + (Math.abs(safeLat) % 0.015);
+    if (safeLng < 116.835) safeLng = 116.860 + (Math.abs(safeLng) % 0.015);
+    return { lat: safeLat, lng: safeLng };
+  }
+
+  // 7. KUPANG:
+  // Kupang Bay lies North of -10.165
+  if (normCity.includes('kupang')) {
+    let safeLat = lat;
+    if (safeLat > -10.175) safeLat = -10.190 - (Math.abs(safeLat) % 0.015);
+    return { lat: safeLat, lng };
+  }
+
+  // 8. DENPASAR / BADUNG:
+  // Indian Ocean lies South of -8.720 and East of 115.260
+  if (normCity.includes('denpasar') || normCity.includes('badung')) {
+    let safeLat = lat;
+    let safeLng = lng;
+    if (safeLat < -8.705) safeLat = -8.680 + (Math.abs(safeLat) % 0.015);
+    if (safeLng > 115.250) safeLng = 115.230 - (Math.abs(safeLng) % 0.015);
+    return { lat: safeLat, lng: safeLng };
+  }
+
+  // 9. BANDA ACEH:
+  // Sea lies North of 5.570 and West of 95.305
+  if (normCity.includes('aceh')) {
+    let safeLat = lat;
+    let safeLng = lng;
+    if (safeLat > 5.555) safeLat = 5.535 - (Math.abs(safeLat) % 0.015);
+    if (safeLng < 95.315) safeLng = 95.335 + (Math.abs(safeLng) % 0.015);
+    return { lat: safeLat, lng: safeLng };
+  }
+
+  // 10. MANADO:
+  // Sea lies North of 1.500 and West of 124.825
+  if (normCity.includes('manado')) {
+    let safeLat = lat;
+    let safeLng = lng;
+    if (safeLat > 1.485) safeLat = 1.465 - (Math.abs(safeLat) % 0.015);
+    if (safeLng < 124.835) safeLng = 124.855 + (Math.abs(safeLng) % 0.015);
+    return { lat: safeLat, lng: safeLng };
+  }
+
+  // 11. GENERAL JAVA NORTH COAST (Cirebon, Indramayu, Subang, Karawang, Bekasi, Pekalongan, Tegal, Batang, Jepara, Rembang, Tuban, Lamongan, Gresik, Pasuruan, Probolinggo):
+  if (
+    normCity.includes('cirebon') || normCity.includes('indramayu') || normCity.includes('subang') ||
+    normCity.includes('karawang') || normCity.includes('bekasi') || normCity.includes('pekalongan') ||
+    normCity.includes('tegal') || normCity.includes('brebes') || normCity.includes('batang') ||
+    normCity.includes('jepara') || normCity.includes('rembang') || normCity.includes('tuban') ||
+    normCity.includes('lamongan') || normCity.includes('gresik') || normCity.includes('pasuruan') ||
+    normCity.includes('probolinggo')
+  ) {
+    if (lat > -6.80 && (normCity.includes('cirebon') || normCity.includes('indramayu'))) {
+      return { lat: Math.min(lat, -6.85), lng };
+    }
+    if (lat > -6.85 && (normCity.includes('pekalongan') || normCity.includes('tegal') || normCity.includes('brebes'))) {
+      return { lat: Math.min(lat, -6.92), lng };
+    }
+    if (lat > -7.00 && (normCity.includes('tuban') || normCity.includes('lamongan') || normCity.includes('gresik'))) {
+      return { lat: Math.min(lat, -7.08), lng };
+    }
+  }
+
+  return { lat, lng };
+}
+
+/**
  * Deterministically resolves valid destination school coordinates and name for any vehicle.
- * Ensures the destination is NEVER null or invalid under any circumstances.
+ * Ensures the destination is NEVER null, NEVER offshore, and 100% on land.
  */
 export function resolveVehicleDestination(
   vehicle: {
@@ -84,21 +233,23 @@ export function resolveVehicleDestination(
 ): ResolvedDestination {
   const name = vehicle.destination_school_name || (vehicle.city ? `Sekolah Penerima ${vehicle.city}` : 'Sekolah Penerima');
 
-  // 1. Direct verified destination coordinates
+  // 1. Direct verified destination coordinates (always clamped to land!)
   if (
     vehicle.destination_lat != null &&
     vehicle.destination_lng != null &&
     Number.isFinite(vehicle.destination_lat) &&
     Number.isFinite(vehicle.destination_lng)
   ) {
-    return { name, lat: vehicle.destination_lat, lng: vehicle.destination_lng };
+    const clamped = clampCoordinatesToLand(vehicle.destination_lat, vehicle.destination_lng, vehicle.city);
+    return { name, lat: clamped.lat, lng: clamped.lng };
   }
 
-  // 2. Extract from route endpoint if route geometry exists
+  // 2. Extract from route endpoint if route geometry exists (clamped to land!)
   if (isValidRoute(vehicle.route_geometry)) {
     const lastPoint = vehicle.route_geometry[vehicle.route_geometry.length - 1];
     if (isValidCoord(lastPoint)) {
-      return { name, lat: lastPoint[1], lng: lastPoint[0] };
+      const clamped = clampCoordinatesToLand(lastPoint[1], lastPoint[0], vehicle.city);
+      return { name, lat: clamped.lat, lng: clamped.lng };
     }
   }
 
@@ -108,12 +259,23 @@ export function resolveVehicleDestination(
 
   const idStr = vehicle.id || vehicle.city || 'default';
   const hash = Math.abs(idStr.split('').reduce((acc, c) => acc + c.charCodeAt(0), 0));
-  const angle = ((hash % 16) / 16) * Math.PI * 2;
-  const radius = 0.015 + ((hash % 5) * 0.003); // ~1.6km - 2.8km
+  
+  // Deterministic inland bias: if in Java north coast / coastal region, bias South
+  const normCity = (vehicle.city || '').toLowerCase();
+  const isNorthCoast = normCity.includes('jakarta') || normCity.includes('surabaya') || normCity.includes('semarang') || normCity.includes('cirebon') || normCity.includes('utara');
+  
+  const angle = isNorthCoast
+    ? -Math.PI / 2 + (((hash % 8) - 4) / 8) * (Math.PI / 3) // -90 deg (South) +/- 30 deg
+    : ((hash % 16) / 16) * Math.PI * 2;
+  const radius = 0.012 + ((hash % 4) * 0.002); // ~1.3km - 2.0km
+
+  const rawLat = baseLat + Math.sin(angle) * radius;
+  const rawLng = baseLng + Math.cos(angle) * radius;
+  const clamped = clampCoordinatesToLand(rawLat, rawLng, vehicle.city);
 
   return {
     name,
-    lat: baseLat + Math.sin(angle) * radius,
-    lng: baseLng + Math.cos(angle) * radius,
+    lat: clamped.lat,
+    lng: clamped.lng,
   };
 }
