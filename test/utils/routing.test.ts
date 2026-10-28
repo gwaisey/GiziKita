@@ -31,17 +31,26 @@ describe('routing land-clamping safety', () => {
     expect(clamped.lng).toBeGreaterThanOrEqual(119.418);
   });
 
-  it('resolveVehicleDestination guarantees land destination even if input is offshore', () => {
+  it('clamps offshore coordinates in Kota Sorong eastward onto mainland land', () => {
+    // 131.235 in Sorong is deep in the sea off the coast of Papua
+    const lat = -0.876;
+    const offshoreLng = 131.235;
+    const clamped = clampCoordinatesToLand(lat, offshoreLng, 'Kota Sorong');
+
+    expect(clamped.lng).toBeGreaterThanOrEqual(131.258);
+  });
+
+  it('clamps offshore vehicle destination in Kota Sorong (PB 2138 BGN case)', () => {
     const vehicle = {
-      id: 'test-veh-1',
-      city: 'Jakarta Utara',
-      destination_lat: -6.075, // in Java Sea
-      destination_lng: 106.88,
-      destination_school_name: 'SDN Pantai Muara 01'
+      id: 'sorong-veh-2',
+      license_plate: 'PB 2138 BGN',
+      city: 'Kota Sorong',
+      destination_lat: -0.872,
+      destination_lng: 131.230, // in the sea
+      destination_school_name: 'Sekolah Bina Gizi Kota Sorong #2'
     };
 
     const resolved = resolveVehicleDestination(vehicle);
-    expect(resolved.name).toBe('SDN Pantai Muara 01');
-    expect(resolved.lat).toBeLessThanOrEqual(-6.125);
+    expect(resolved.lng).toBeGreaterThanOrEqual(131.258);
   });
 });

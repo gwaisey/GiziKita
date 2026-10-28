@@ -59,6 +59,8 @@ export function createFallbackRoute(
   return [p1, p2, p3, p4];
 }
 
+import { findRegionByName } from '@/js/data/indonesia_regions';
+
 export interface ResolvedDestination {
   name: string;
   lat: number;
@@ -81,10 +83,21 @@ export function clampCoordinatesToLand(
 
   const normCity = (city || '').toLowerCase().replace(/^(kota|kabupaten|kab\.|adm\.)\s+/i, '').trim();
 
-  // 1. DKI JAKARTA / JAKARTA UTARA:
-  // Java Sea lies directly North of -6.1150. Coastline from Kamal Muara to Cilincing.
-  // Kamal Muara / Muara Angke (West): water if lng < 106.78 && lat > -6.125.
-  // Port of Tanjung Priok / Ancol / Marunda: water if lat > -6.1150.
+  // 1. KOTA SORONG / SORONG:
+  // Coastline: Dampier Strait / Pacific is to the West (lng < 131.255).
+  // Inland is to the East (lng >= 131.258, towards Remu / Malanu / Klawuyuk / Aimas).
+  if (normCity.includes('sorong') || (lat > -0.92 && lat < -0.84 && lng > 131.20 && lng < 131.30)) {
+    let safeLng = lng;
+    let safeLat = lat;
+    if (safeLng < 131.258) {
+      safeLng = 131.268 + (Math.abs(safeLng) % 0.015);
+    }
+    if (safeLat < -0.900) safeLat = -0.885;
+    if (safeLat > -0.860) safeLat = -0.875;
+    return { lat: safeLat, lng: safeLng };
+  }
+
+  // 2. DKI JAKARTA / JAKARTA UTARA:
   if (normCity.includes('jakarta') || normCity.includes('utara') || (lat > -6.15 && lat < -6.05 && lng > 106.65 && lng < 107.00)) {
     let safeLat = lat;
     let safeLng = lng;
@@ -99,52 +112,37 @@ export function clampCoordinatesToLand(
     return { lat: safeLat, lng: safeLng };
   }
 
-  // 2. SURABAYA / SIDOARJO NORTH COAST:
-  // Madura Strait lies to the North (lat > -7.200) and East (lng > 112.805)
+  // 3. SURABAYA / SIDOARJO NORTH COAST:
   if (normCity.includes('surabaya')) {
     let safeLat = lat;
     let safeLng = lng;
-    if (safeLat > -7.215) {
-      safeLat = -7.240 - (Math.abs(safeLat) % 0.015);
-    }
-    if (safeLng > 112.795) {
-      safeLng = 112.770 - (Math.abs(safeLng) % 0.015);
-    }
+    if (safeLat > -7.215) safeLat = -7.240 - (Math.abs(safeLat) % 0.015);
+    if (safeLng > 112.795) safeLng = 112.770 - (Math.abs(safeLng) % 0.015);
     return { lat: safeLat, lng: safeLng };
   }
 
-  // 3. SEMARANG:
-  // Java Sea lies North of -6.950
+  // 4. SEMARANG:
   if (normCity.includes('semarang')) {
     let safeLat = lat;
-    if (safeLat > -6.965) {
-      safeLat = -6.985 - (Math.abs(safeLat) % 0.015);
-    }
+    if (safeLat > -6.965) safeLat = -6.985 - (Math.abs(safeLat) % 0.015);
     return { lat: safeLat, lng };
   }
 
-  // 4. MAKASSAR:
-  // Makassar Strait lies West of 119.410
+  // 5. MAKASSAR:
   if (normCity.includes('makassar')) {
     let safeLng = lng;
-    if (safeLng < 119.418) {
-      safeLng = 119.435 + (Math.abs(safeLng) % 0.015);
-    }
+    if (safeLng < 119.418) safeLng = 119.435 + (Math.abs(safeLng) % 0.015);
     return { lat, lng: safeLng };
   }
 
-  // 5. PADANG:
-  // Indian Ocean lies West of 100.345
+  // 6. PADANG:
   if (normCity.includes('padang')) {
     let safeLng = lng;
-    if (safeLng < 100.355) {
-      safeLng = 100.375 + (Math.abs(safeLng) % 0.015);
-    }
+    if (safeLng < 100.355) safeLng = 100.375 + (Math.abs(safeLng) % 0.015);
     return { lat, lng: safeLng };
   }
 
-  // 6. BALIKPAPAN:
-  // Balikpapan Bay / Makassar Strait lies South (lat < -1.260) and West (lng < 116.825)
+  // 7. BALIKPAPAN:
   if (normCity.includes('balikpapan')) {
     let safeLat = lat;
     let safeLng = lng;
@@ -153,16 +151,14 @@ export function clampCoordinatesToLand(
     return { lat: safeLat, lng: safeLng };
   }
 
-  // 7. KUPANG:
-  // Kupang Bay lies North of -10.165
+  // 8. KUPANG:
   if (normCity.includes('kupang')) {
     let safeLat = lat;
     if (safeLat > -10.175) safeLat = -10.190 - (Math.abs(safeLat) % 0.015);
     return { lat: safeLat, lng };
   }
 
-  // 8. DENPASAR / BADUNG:
-  // Indian Ocean lies South of -8.720 and East of 115.260
+  // 9. DENPASAR / BADUNG:
   if (normCity.includes('denpasar') || normCity.includes('badung')) {
     let safeLat = lat;
     let safeLng = lng;
@@ -171,8 +167,7 @@ export function clampCoordinatesToLand(
     return { lat: safeLat, lng: safeLng };
   }
 
-  // 9. BANDA ACEH:
-  // Sea lies North of 5.570 and West of 95.305
+  // 10. BANDA ACEH:
   if (normCity.includes('aceh')) {
     let safeLat = lat;
     let safeLng = lng;
@@ -181,8 +176,7 @@ export function clampCoordinatesToLand(
     return { lat: safeLat, lng: safeLng };
   }
 
-  // 10. MANADO:
-  // Sea lies North of 1.500 and West of 124.825
+  // 11. MANADO:
   if (normCity.includes('manado')) {
     let safeLat = lat;
     let safeLng = lng;
@@ -191,7 +185,64 @@ export function clampCoordinatesToLand(
     return { lat: safeLat, lng: safeLng };
   }
 
-  // 11. GENERAL JAVA NORTH COAST (Cirebon, Indramayu, Subang, Karawang, Bekasi, Pekalongan, Tegal, Batang, Jepara, Rembang, Tuban, Lamongan, Gresik, Pasuruan, Probolinggo):
+  // 12. AMBON:
+  if (normCity.includes('ambon')) {
+    let safeLat = lat;
+    let safeLng = lng;
+    if (safeLat < -3.710) safeLat = -3.695;
+    if (safeLng < 128.175) safeLng = 128.185;
+    return { lat: safeLat, lng: safeLng };
+  }
+
+  // 13. JAYAPURA:
+  if (normCity.includes('jayapura')) {
+    let safeLat = lat;
+    if (safeLat > -2.535) safeLat = -2.550;
+    return { lat: safeLat, lng };
+  }
+
+  // 14. MATARAM:
+  if (normCity.includes('mataram')) {
+    let safeLng = lng;
+    if (safeLng < 116.085) safeLng = 116.105;
+    return { lat, lng: safeLng };
+  }
+
+  // 15. PALU:
+  if (normCity.includes('palu')) {
+    let safeLat = lat;
+    if (safeLat > -0.885) safeLat = -0.900;
+    return { lat: safeLat, lng };
+  }
+
+  // 16. KENDARI:
+  if (normCity.includes('kendari')) {
+    let safeLng = lng;
+    if (safeLng > 122.560) safeLng = 122.545;
+    return { lat, lng: safeLng };
+  }
+
+  // 17. TERNATE:
+  if (normCity.includes('ternate')) {
+    let safeLng = lng;
+    if (safeLng < 127.370) safeLng = 127.380;
+    if (safeLng > 127.395) safeLng = 127.385;
+    return { lat, lng: safeLng };
+  }
+
+  // 18. TARAKAN:
+  if (normCity.includes('tarakan')) {
+    let safeLng = lng;
+    if (safeLng < 117.575) safeLng = 117.590;
+    return { lat, lng: safeLng };
+  }
+
+  // 19. SIBOLGA & BENGKULU:
+  if (normCity.includes('sibolga') && lng < 98.775) return { lat, lng: 98.790 };
+  if (normCity.includes('bengkulu') && lng < 102.260) return { lat, lng: 102.280 };
+  if (normCity.includes('pariaman') && lng < 100.120) return { lat, lng: 100.135 };
+
+  // 20. GENERAL JAVA NORTH COAST:
   if (
     normCity.includes('cirebon') || normCity.includes('indramayu') || normCity.includes('subang') ||
     normCity.includes('karawang') || normCity.includes('bekasi') || normCity.includes('pekalongan') ||
@@ -208,6 +259,21 @@ export function clampCoordinatesToLand(
     }
     if (lat > -7.00 && (normCity.includes('tuban') || normCity.includes('lamongan') || normCity.includes('gresik'))) {
       return { lat: Math.min(lat, -7.08), lng };
+    }
+  }
+
+  // 21. UNIVERSAL REGION CENTROID SAFE-GUARD FOR ALL 514 REGIONS:
+  // Every region in INDONESIA_514_REGIONS has an administratively verified land coordinate.
+  // If coordinates drift > 0.022 degrees (~2.4 km) from the verified center, pull them back!
+  const reg = findRegionByName(city);
+  if (reg) {
+    const dist = Math.hypot(lat - reg.lat, lng - reg.lng);
+    if (dist > 0.022) {
+      const scale = 0.015 / dist;
+      return {
+        lat: reg.lat + (lat - reg.lat) * scale,
+        lng: reg.lng + (lng - reg.lng) * scale,
+      };
     }
   }
 
@@ -260,14 +326,21 @@ export function resolveVehicleDestination(
   const idStr = vehicle.id || vehicle.city || 'default';
   const hash = Math.abs(idStr.split('').reduce((acc, c) => acc + c.charCodeAt(0), 0));
   
-  // Deterministic inland bias: if in Java north coast / coastal region, bias South
+  // Deterministic inland bias:
   const normCity = (vehicle.city || '').toLowerCase();
   const isNorthCoast = normCity.includes('jakarta') || normCity.includes('surabaya') || normCity.includes('semarang') || normCity.includes('cirebon') || normCity.includes('utara');
-  
-  const angle = isNorthCoast
-    ? -Math.PI / 2 + (((hash % 8) - 4) / 8) * (Math.PI / 3) // -90 deg (South) +/- 30 deg
-    : ((hash % 16) / 16) * Math.PI * 2;
-  const radius = 0.012 + ((hash % 4) * 0.002); // ~1.3km - 2.0km
+  const isWestCoast = normCity.includes('sorong') || normCity.includes('makassar') || normCity.includes('padang') || normCity.includes('bengkulu') || normCity.includes('singkawang');
+
+  let angle: number;
+  if (isNorthCoast) {
+    angle = -Math.PI / 2 + (((hash % 8) - 4) / 8) * (Math.PI / 3); // Aim South into mainland
+  } else if (isWestCoast) {
+    angle = 0 + (((hash % 8) - 4) / 8) * (Math.PI / 3); // Aim East into mainland
+  } else {
+    angle = ((hash % 16) / 16) * Math.PI * 2;
+  }
+
+  const radius = 0.010 + ((hash % 4) * 0.002); // ~1.1km - 1.8km
 
   const rawLat = baseLat + Math.sin(angle) * radius;
   const rawLng = baseLng + Math.cos(angle) * radius;
