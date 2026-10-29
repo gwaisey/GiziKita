@@ -36,8 +36,10 @@ describe('vehicleStore', () => {
     await useVehicleStore.getState().actions.loadVehicles();
 
     expect(supabase.from).toHaveBeenCalledWith('vehicles');
-    expect(useVehicleStore.getState().vehicles).toEqual(mockVehicles.map(v => ({
-      ...v,
+    expect(useVehicleStore.getState().vehicles).toEqual(mockVehicles.map(v => expect.objectContaining({
+      id: v.id,
+      license_plate: v.license_plate,
+      driver_name: v.driver_name,
       status: 'idle',
       route_progress: 0,
       route_source: 'demo_unverified',

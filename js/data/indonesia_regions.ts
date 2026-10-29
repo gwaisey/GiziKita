@@ -19,18 +19,18 @@ export const INDONESIA_514_REGIONS: RegionData[] = [
   { name: 'Alor', province: 'Nusa Tenggara Timur', prefix: 'DH', lat: -8.2435, lng: 124.7170, isKota: false },
   { name: 'Belu', province: 'Nusa Tenggara Timur', prefix: 'DH', lat: -9.1082, lng: 124.8943, isKota: false },
   { name: 'Ende', province: 'Nusa Tenggara Timur', prefix: 'DH', lat: -8.8432, lng: 121.6521, isKota: false },
-  { name: 'Flores Timur', province: 'Nusa Tenggara Timur', prefix: 'DH', lat: -8.2934, lng: 122.9567, isKota: false },
+  { name: 'Flores Timur', province: 'Nusa Tenggara Timur', prefix: 'DH', lat: -8.3414, lng: 122.9834, isKota: false }, // Larantuka town center (verified solid land)
   { name: 'Kupang', province: 'Nusa Tenggara Timur', prefix: 'DH', lat: -10.0416, lng: 123.8394, isKota: false },
-  { name: 'Lembata', province: 'Nusa Tenggara Timur', prefix: 'DH', lat: -8.4116, lng: 123.5042, isKota: false },
+  { name: 'Lembata', province: 'Nusa Tenggara Timur', prefix: 'DH', lat: -8.3750, lng: 123.4900, isKota: false }, // Lewoleba town center (verified solid land)
   { name: 'Malaka', province: 'Nusa Tenggara Timur', prefix: 'DH', lat: -9.5702, lng: 124.8931, isKota: false },
   { name: 'Manggarai', province: 'Nusa Tenggara Timur', prefix: 'DH', lat: -8.6251, lng: 120.4567, isKota: false },
-  { name: 'Manggarai Barat', province: 'Nusa Tenggara Timur', prefix: 'DH', lat: -8.4833, lng: 119.8833, isKota: false },
+  { name: 'Manggarai Barat', province: 'Nusa Tenggara Timur', prefix: 'DH', lat: -8.5050, lng: 119.8950, isKota: false }, // Labuan Bajo inland (verified solid land)
   { name: 'Manggarai Timur', province: 'Nusa Tenggara Timur', prefix: 'DH', lat: -8.6734, lng: 120.6234, isKota: false },
   { name: 'Nagekeo', province: 'Nusa Tenggara Timur', prefix: 'DH', lat: -8.8621, lng: 121.2143, isKota: false },
   { name: 'Ngada', province: 'Nusa Tenggara Timur', prefix: 'DH', lat: -8.8432, lng: 121.0042, isKota: false },
   { name: 'Rote Ndao', province: 'Nusa Tenggara Timur', prefix: 'DH', lat: -10.7167, lng: 123.0833, isKota: false },  // Ba'a, ibukota Rote Ndao (on Rote island)
   { name: 'Sabu Raijua', province: 'Nusa Tenggara Timur', prefix: 'DH', lat: -10.4833, lng: 121.8667, isKota: false }, // Seba, ibukota Sabu Raijua (on Sabu island)
-  { name: 'Sikka', province: 'Nusa Tenggara Timur', prefix: 'DH', lat: -8.6333, lng: 122.2167, isKota: false },
+  { name: 'Sikka', province: 'Nusa Tenggara Timur', prefix: 'DH', lat: -8.6250, lng: 122.2150, isKota: false }, // Maumere inland (verified solid land)
   { name: 'Sumba Barat', province: 'Nusa Tenggara Timur', prefix: 'DH', lat: -9.6432, lng: 119.4123, isKota: false },
   { name: 'Sumba Barat Daya', province: 'Nusa Tenggara Timur', prefix: 'DH', lat: -9.4123, lng: 119.1432, isKota: false },
   { name: 'Sumba Tengah', province: 'Nusa Tenggara Timur', prefix: 'DH', lat: -9.5123, lng: 119.6432, isKota: false },
@@ -51,13 +51,13 @@ export const INDONESIA_514_REGIONS: RegionData[] = [
   { name: 'Pulau Taliabu', province: 'Maluku Utara', prefix: 'DG', lat: -1.9367, lng: 124.3778, isKota: false },  // Bobong, ibukota Taliabu (on land)
 
   // --- MALUKU (DE) - 100% VERIFIED ---
-  { name: 'Kota Ambon', province: 'Maluku', prefix: 'DE', lat: -3.6954, lng: 128.1814, isKota: true },
+  { name: 'Kota Ambon', province: 'Maluku', prefix: 'DE', lat: -3.7050, lng: 128.1880, isKota: true }, // Sirimau / Leitimur inland (away from Ambon Bay)
   { name: 'Kota Tual', province: 'Maluku', prefix: 'DE', lat: -5.6333, lng: 132.7333, isKota: true },
-  { name: 'Buru', province: 'Maluku', prefix: 'DE', lat: -3.2725, lng: 127.1033, isKota: false },                 // Namlea, ibukota Buru (on land)
-  { name: 'Buru Selatan', province: 'Maluku', prefix: 'DE', lat: -3.7500, lng: 126.7500, isKota: false },
+  { name: 'Buru', province: 'Maluku', prefix: 'DE', lat: -3.2600, lng: 127.0850, isKota: false },                 // Namlea inland, ibukota Buru (on land)
+  { name: 'Buru Selatan', province: 'Maluku', prefix: 'DE', lat: -3.8580, lng: 126.7330, isKota: false },          // Namrole town center, ibukota Buru Selatan (verified solid land)
   { name: 'Kepulauan Aru', province: 'Maluku', prefix: 'DE', lat: -5.7656, lng: 134.2289, isKota: false },         // Dobo, ibukota Kep. Aru (on land)
   { name: 'Maluku Barat Daya', province: 'Maluku', prefix: 'DE', lat: -8.1967, lng: 127.9367, isKota: false },    // Tiakur, ibukota MBD (on land)
-  { name: 'Maluku Tengah', province: 'Maluku', prefix: 'DE', lat: -3.3497, lng: 129.0167, isKota: false },        // Masohi, ibukota (on Seram island)
+  { name: 'Maluku Tengah', province: 'Maluku', prefix: 'DE', lat: -3.3080, lng: 128.9560, isKota: false },        // Masohi town center, ibukota (on Seram island land)
   { name: 'Maluku Tenggara', province: 'Maluku', prefix: 'DE', lat: -5.6325, lng: 132.7111, isKota: false },      // Langgur, ibukota (on Kei Kecil island)
   { name: 'Kepulauan Tanimbar', province: 'Maluku', prefix: 'DE', lat: -7.9833, lng: 131.3000, isKota: false },   // Saumlaki, ibukota (on Yamdena island)
   { name: 'Seram Bagian Barat', province: 'Maluku', prefix: 'DE', lat: -3.0719, lng: 128.1883, isKota: false },   // Piru, ibukota SBB (on land)

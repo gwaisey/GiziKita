@@ -9,7 +9,7 @@ import { useVehicleStore, Vehicle } from '@/js/store/vehicleStore';
 import { useQuery } from '@tanstack/react-query';
 import { INDONESIA_514_REGIONS, resolveSppgLocation, normalizeRegionName } from '@/js/data/indonesia_regions';
 import VehicleService, { VEHICLE_STATUS_META } from '@/js/services/VehicleService';
-import { createFallbackRoute, isValidRoute, resolveVehicleDestination, clampCoordinatesToLand } from '@/js/utils/routing';
+import { createFallbackRoute, isValidRoute, resolveVehicleDestination, clampCoordinatesToLand, isCoordinateInOpenSea } from '@/js/utils/routing';
 import { AlertTriangle, MapPin, Navigation, School, Trash2, User, X, Zap } from 'lucide-react';
 import { supabase } from '@/js/core/SupabaseClient';
 import { queryKeys } from '@/src/lib/queryKeys';
@@ -223,6 +223,12 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
     const candidates = [
       ...sppgUnits.map((unit: any) => ({ id: `sppg:${unit.id ?? unit.name}`, lng: unit.lng, lat: unit.lat })),
       ...schools.map((school: any) => ({ id: `school:${school.id ?? school.name}`, lng: school.lng, lat: school.lat })),
+      ...vehicles.map((v: any) => {
+        const sppg = resolveSppgLocation(v.city, sppgUnits, { vehicleLat: v.last_lat, vehicleLng: v.last_lng });
+        const clampedSppg = sppg ? clampCoordinatesToLand(sppg.lat, sppg.lng, v.city) : null;
+        const resolved = resolveVehicleDestination(v, clampedSppg);
+        return { id: `school:${resolved.name}`, lng: resolved.lng, lat: resolved.lat };
+      }),
     ];
 
     const validateVisibleMarkers = () => {
@@ -232,6 +238,10 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
       for (const point of candidates) {
         if (!Number.isFinite(point.lng) || !Number.isFinite(point.lat) || !bounds.contains([point.lng, point.lat])) continue;
         try {
+          if (isCoordinateInOpenSea(point.lat, point.lng)) {
+            offshore.add(point.id);
+            continue;
+          }
           const screenPoint = map.project([point.lng, point.lat]);
           if (map.queryRenderedFeatures(screenPoint, { layers: waterLayerIds }).length > 0) {
             offshore.add(point.id);
@@ -246,7 +256,7 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
     validateVisibleMarkers();
     map.on('moveend', validateVisibleMarkers);
     return () => { map.off('moveend', validateVisibleMarkers); };
-  }, [mapStatus, infrastructureQuery.data, selectedCity]);
+  }, [mapStatus, infrastructureQuery.data, selectedCity, vehicles]);
 
   // --- Auto-Navigate to Selected Region ---
   useEffect(() => {
@@ -313,7 +323,7 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
         if (sppg && Number.isFinite(sppg.lng) && Number.isFinite(sppg.lat)) {
           const clamped = clampCoordinatesToLand(sppg.lat, sppg.lng, v.city);
           const key = sppg.id || sppg.name || `${clamped.lat.toFixed(5)},${clamped.lng.toFixed(5)}`;
-          if (!hubMap.has(key) && !offshoreMarkerIds.has(`sppg:${sppg.id ?? sppg.name}`)) {
+          if (!hubMap.has(key) && !isCoordinateInOpenSea(clamped.lat, clamped.lng) && !offshoreMarkerIds.has(`sppg:${sppg.id ?? sppg.name}`)) {
             hubMap.set(key, {
               type: 'Feature',
               geometry: { type: 'Point', coordinates: [clamped.lng, clamped.lat] },
@@ -366,7 +376,7 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
     const schoolMap = new Map<string, { name: string; province?: string; city?: string; lng: number; lat: number }>();
 
     for (const s of schools) {
-      if (Number.isFinite(s.lng) && Number.isFinite(s.lat) && !offshoreMarkerIds.has(`school:${s.id ?? s.name}`)) {
+      if (Number.isFinite(s.lng) && Number.isFinite(s.lat) && !isCoordinateInOpenSea(s.lat, s.lng) && !offshoreMarkerIds.has(`school:${s.id ?? s.name}`)) {
         if (selectedCity !== 'Semua') {
           const norm = normalizeRegionName(s.city || s.province);
           if (norm !== normSelected && normalizeRegionName(s.province) !== normSelected) continue;
@@ -392,6 +402,12 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
       const clampedSppg = sppg ? clampCoordinatesToLand(sppg.lat, sppg.lng, v.city) : null;
       const resolved = resolveVehicleDestination(v, clampedSppg);
       const clamped = clampCoordinatesToLand(resolved.lat, resolved.lng, v.city);
+      
+      // Robust Open Sea Exclusion: never render a school marker in Java Sea, Flores Sea, or Banda Sea
+      if (isCoordinateInOpenSea(clamped.lat, clamped.lng) || offshoreMarkerIds.has(`school:${resolved.name}`)) {
+        continue;
+      }
+
       if (!schoolMap.has(resolved.name) && Number.isFinite(clamped.lng) && Number.isFinite(clamped.lat)) {
         schoolMap.set(resolved.name, {
           name: resolved.name,

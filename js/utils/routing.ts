@@ -69,6 +69,51 @@ export interface ResolvedDestination {
 }
 
 /**
+ * Detects if a coordinate falls in open marine waters:
+ * 1. Java Sea (open sea north of Java and south of Kalimantan)
+ * 2. Flores Sea (open sea north of Flores/Sumbawa)
+ * 3. Banda Sea (open deep sea in Central/South Maluku)
+ */
+export function isCoordinateInOpenSea(lat: number, lng: number): boolean {
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return false;
+
+  // 1. JAVA SEA: Between Java coast and Kalimantan
+  // Lat -5.90 to -3.55, Lng 106.30 to 114.80
+  if (lat > -5.90 && lat < -3.55 && lng > 106.30 && lng < 114.80) {
+    // Exclude near Banjarmasin/Tanah Laut Kalimantan shore
+    if (lat > -3.70 && lng > 114.40 && lng < 114.80) {
+      return false;
+    }
+    return true;
+  }
+
+  // 2. FLORES SEA: Deep open water north of Flores & Sumbawa
+  // Lat -8.20 to -6.80, Lng 117.50 to 123.80
+  if (lat > -8.20 && lat < -6.80 && lng > 117.50 && lng < 123.80) {
+    return true;
+  }
+
+  // 3. BANDA SEA: Central/South Maluku deep marine water basin
+  // Lat -7.20 to -3.40, Lng 125.20 to 132.50
+  if (lat > -7.20 && lat < -3.40 && lng > 125.20 && lng < 132.50) {
+    // Exclude verified island land envelopes:
+    // Ambon island:
+    if (lat >= -3.74 && lat <= -3.65 && lng >= 128.15 && lng <= 128.25) return false;
+    // Buru island:
+    if (lat >= -3.90 && lat <= -3.15 && lng >= 126.60 && lng <= 127.25) return false;
+    // Seram island:
+    if (lat >= -3.40 && lat <= -2.90 && lng >= 128.00 && lng <= 130.80) return false;
+    // Kei / Tual islands:
+    if (lat >= -5.75 && lat <= -5.55 && lng >= 132.65 && lng <= 132.80) return false;
+    // Banda Neira:
+    if (lat >= -4.55 && lat <= -4.50 && lng >= 129.88 && lng <= 129.93) return false;
+    return true;
+  }
+
+  return false;
+}
+
+/**
  * Strict Land Clamping:
  * Coastal cities in Indonesia border the ocean on specific sides.
  * Any coordinates projected into the water are clamped safely inland.
@@ -188,12 +233,123 @@ export function clampCoordinatesToLand(
     return { lat: safeLat, lng: safeLng };
   }
 
-  // 12. AMBON:
+  // 12. AMBON (LEITIMUR PENINSULA):
+  // Teluk Ambon (Ambon Bay) lies between lat -3.64 and -3.69, lng 128.17 to 128.23.
+  // Any point projected into the bay must be pulled South-East onto the solid Leitimur mainland.
   if (normCity.includes('ambon')) {
     let safeLat = lat;
     let safeLng = lng;
-    if (safeLat < -3.710) safeLat = -3.695;
-    if (safeLng < 128.175) safeLng = 128.185;
+    if (safeLat > -3.695) safeLat = -3.705 - (Math.abs(safeLat) % 0.008);
+    if (safeLat < -3.710) safeLat = -3.708;
+    if (safeLng < 128.178) safeLng = 128.188;
+    if (safeLng > 128.215) safeLng = 128.205;
+    return { lat: safeLat, lng: safeLng };
+  }
+
+  // 12A. FLORES TIMUR (LARANTUKA):
+  // Larantuka is bordered by Flores Sea / Strait to the North & East.
+  // Mainland is at lat -8.3414, lng 122.9834. Clamp South-West into mainland.
+  if (normCity.includes('flores') && normCity.includes('timur')) {
+    let safeLat = lat;
+    let safeLng = lng;
+    if (safeLat > -8.330) safeLat = -8.345 - (Math.abs(safeLat) % 0.006);
+    if (safeLng > 122.980) safeLng = 122.975 - (Math.abs(safeLng) % 0.006);
+    return { lat: safeLat, lng: safeLng };
+  }
+
+  // 12B. LEMBATA (LEWOLEBA):
+  // Lewoleba faces Flores Sea to the North. Mainland center: lat -8.3750, lng 123.4900.
+  if (normCity.includes('lembata')) {
+    let safeLat = lat;
+    let safeLng = lng;
+    if (safeLat > -8.370) safeLat = -8.385 - (Math.abs(safeLat) % 0.006);
+    if (safeLng > 123.510) safeLng = 123.495;
+    return { lat: safeLat, lng: safeLng };
+  }
+
+  // 12C. ALOR (KALABAHI):
+  // Kalabahi mainland center: lat -8.2167, lng 124.5167.
+  if (normCity.includes('alor')) {
+    let safeLat = lat;
+    let safeLng = lng;
+    if (safeLat > -8.210) safeLat = -8.225 - (Math.abs(safeLat) % 0.006);
+    if (safeLng > 124.550) safeLng = 124.520;
+    return { lat: safeLat, lng: safeLng };
+  }
+
+  // 12D. SIKKA (MAUMERE):
+  // Maumere faces Flores Sea to the North. Mainland center: lat -8.6250, lng 122.2150.
+  if (normCity.includes('sikka') || normCity.includes('maumere')) {
+    let safeLat = lat;
+    if (safeLat > -8.618) safeLat = -8.630 - (Math.abs(safeLat) % 0.006);
+    return { lat: safeLat, lng };
+  }
+
+  // 12E. MANGGARAI BARAT (LABUAN BAJO):
+  // Labuan Bajo borders the Flores Sea to the North and West. Mainland center: lat -8.5050, lng 119.8950.
+  if (normCity.includes('manggarai') && normCity.includes('barat')) {
+    let safeLat = lat;
+    let safeLng = lng;
+    if (safeLat > -8.490) safeLat = -8.508 - (Math.abs(safeLat) % 0.006);
+    if (safeLng < 119.880) safeLng = 119.896 + (Math.abs(safeLng) % 0.006);
+    return { lat: safeLat, lng: safeLng };
+  }
+
+  // 12F. BURU SELATAN (NAMROLE):
+  // Namrole town center: lat -3.8580, lng 126.7330. Banda Sea is to the South and East.
+  if (normCity.includes('buru') && normCity.includes('selatan')) {
+    let safeLat = lat;
+    let safeLng = lng;
+    if (safeLat > -3.840 || safeLat < -3.875) safeLat = -3.855;
+    if (safeLng > 126.740 || safeLng < 126.720) safeLng = 126.732;
+    return { lat: safeLat, lng: safeLng };
+  }
+
+  // 12G. BURU (NAMLEA):
+  // Namlea town center: lat -3.2600, lng 127.0850.
+  if (normCity === 'buru' || (normCity.includes('buru') && !normCity.includes('selatan'))) {
+    let safeLat = lat;
+    let safeLng = lng;
+    if (safeLng > 127.100) safeLng = 127.085;
+    if (safeLat > -3.245) safeLat = -3.260;
+    return { lat: safeLat, lng: safeLng };
+  }
+
+  // 12H. MALUKU TENGAH (MASOHI):
+  // Masohi town center on Seram Island: lat -3.3080, lng 128.9560. Banda Sea / Teluk Elpaputih is to the South.
+  if (normCity.includes('maluku') && normCity.includes('tengah')) {
+    let safeLat = lat;
+    if (safeLat < -3.315) safeLat = -3.305;
+    return { lat: safeLat, lng };
+  }
+
+  // 12I. MALUKU BARAT DAYA (TIAKUR / MOA):
+  // Tiakur town center on Moa Island: lat -8.1967, lng 127.9367.
+  if (normCity.includes('barat daya')) {
+    let safeLat = lat;
+    let safeLng = lng;
+    if (safeLat > -8.185 || safeLat < -8.210) safeLat = -8.1967;
+    if (safeLng > 127.950 || safeLng < 127.920) safeLng = 127.9367;
+    return { lat: safeLat, lng: safeLng };
+  }
+
+  // 12J. KEPULAUAN TANIMBAR (SAUMLAKI):
+  // Saumlaki town center on Yamdena Island: lat -7.9800, lng 131.2950.
+  if (normCity.includes('tanimbar')) {
+    let safeLat = lat;
+    let safeLng = lng;
+    if (safeLat > -7.965 || safeLat < -7.995) safeLat = -7.980;
+    if (safeLng > 131.310 || safeLng < 131.280) safeLng = 131.295;
+    return { lat: safeLat, lng: safeLng };
+  }
+
+  // 12K. KOTA BANJARMASIN (SOUTH KALIMANTAN):
+  // Coastline facing Java Sea is south. Central Banjarmasin is lat -3.3250, lng 114.5950.
+  if (normCity.includes('banjarmasin')) {
+    let safeLat = lat;
+    let safeLng = lng;
+    if (safeLat > -3.310) safeLat = -3.325;
+    if (safeLng > 114.610) safeLng = 114.595;
     return { lat: safeLat, lng: safeLng };
   }
 
@@ -327,16 +483,25 @@ export function clampCoordinatesToLand(
   if (city) {
     const reg = findRegionByName(city);
     if (reg && Number.isFinite(reg.lat) && Number.isFinite(reg.lng)) {
+      // Immediate snapping if falling into open sea basins
+      if (isCoordinateInOpenSea(lat, lng)) {
+        return { lat: reg.lat, lng: reg.lng };
+      }
       const dist = Math.hypot(lng - reg.lng, lat - reg.lat);
-      if (dist > 0.022) {
+      if (dist > 0.040) {
         const angle = Math.atan2(lat - reg.lat, lng - reg.lng);
-        const safeRadius = 0.012 + (Math.abs(lat + lng) % 0.005);
+        const safeRadius = 0.018 + (Math.abs(lat + lng) % 0.005);
         return {
           lat: reg.lat + Math.sin(angle) * safeRadius,
           lng: reg.lng + Math.cos(angle) * safeRadius,
         };
       }
     }
+  }
+
+  // Universal open sea safety net
+  if (isCoordinateInOpenSea(lat, lng)) {
+    return { lat: -6.2088, lng: 106.8456 }; // Default to central Jakarta mainland
   }
 
   return { lat, lng };
@@ -361,7 +526,7 @@ export function resolveVehicleDestination(
 ): ResolvedDestination {
   const name = vehicle.destination_school_name || (vehicle.city ? `Sekolah Penerima ${vehicle.city}` : 'Sekolah Penerima');
 
-  // 1. Direct verified destination coordinates (always clamped to land!)
+  // If direct verified destination coordinates exist:
   if (
     vehicle.destination_lat != null &&
     vehicle.destination_lng != null &&
@@ -369,24 +534,19 @@ export function resolveVehicleDestination(
     Number.isFinite(vehicle.destination_lng)
   ) {
     const clamped = clampCoordinatesToLand(vehicle.destination_lat, vehicle.destination_lng, vehicle.city);
-    return { name, lat: clamped.lat, lng: clamped.lng };
-  }
-
-  // 2. Extract from route endpoint if route geometry exists (clamped to land!)
-  if (isValidRoute(vehicle.route_geometry)) {
-    const lastPoint = vehicle.route_geometry[vehicle.route_geometry.length - 1];
-    if (isValidCoord(lastPoint)) {
-      const clamped = clampCoordinatesToLand(lastPoint[1], lastPoint[0], vehicle.city);
+    // If no SPPG origin is specified, return the direct clamped land coordinates
+    if (!sppgFallback && vehicle.last_lat == null) {
       return { name, lat: clamped.lat, lng: clamped.lng };
     }
   }
 
   // SPPG Hub is the food pickup point
-  const baseLat = sppgFallback?.lat ?? (Number.isFinite(vehicle.last_lat) ? (vehicle.last_lat as number) : -6.2);
-  const baseLng = sppgFallback?.lng ?? (Number.isFinite(vehicle.last_lng) ? (vehicle.last_lng as number) : 106.8);
+  const reg = vehicle.city ? findRegionByName(vehicle.city) : null;
+  const baseLat = sppgFallback?.lat ?? (Number.isFinite(vehicle.last_lat) ? (vehicle.last_lat as number) : (reg?.lat ?? -6.2));
+  const baseLng = sppgFallback?.lng ?? (Number.isFinite(vehicle.last_lng) ? (vehicle.last_lng as number) : (reg?.lng ?? 106.8));
 
   // 1. Direct verified destination coordinates:
-  // Must be clamped to land AND strictly within 1.0 - 3.0 KM from SPPG pickup point!
+  // Must be clamped to land, NOT in open sea, AND strictly within 1.0 - 3.0 KM from SPPG pickup point!
   if (
     vehicle.destination_lat != null &&
     vehicle.destination_lng != null &&
@@ -395,7 +555,7 @@ export function resolveVehicleDestination(
   ) {
     const clamped = clampCoordinatesToLand(vehicle.destination_lat, vehicle.destination_lng, vehicle.city);
     const dKm = distanceKm(baseLat, baseLng, clamped.lat, clamped.lng);
-    if (dKm >= 1.0 && dKm <= 3.0) {
+    if (dKm >= 1.0 && dKm <= 3.0 && !isCoordinateInOpenSea(clamped.lat, clamped.lng)) {
       return { name, lat: clamped.lat, lng: clamped.lng };
     }
   }
@@ -406,7 +566,7 @@ export function resolveVehicleDestination(
     if (isValidCoord(lastPoint)) {
       const clamped = clampCoordinatesToLand(lastPoint[1], lastPoint[0], vehicle.city);
       const dKm = distanceKm(baseLat, baseLng, clamped.lat, clamped.lng);
-      if (dKm >= 1.0 && dKm <= 3.0) {
+      if (dKm >= 1.0 && dKm <= 3.0 && !isCoordinateInOpenSea(clamped.lat, clamped.lng)) {
         return { name, lat: clamped.lat, lng: clamped.lng };
       }
     }
@@ -416,16 +576,41 @@ export function resolveVehicleDestination(
   const idStr = vehicle.id || vehicle.city || 'default';
   const hash = Math.abs(idStr.split('').reduce((acc, c) => acc + c.charCodeAt(0), 0));
   
-  // Deterministic inland bias for ALL coast types:
+  // Deterministic inland bias for ALL coast & sea types:
   const normCity = (vehicle.city || '').toLowerCase();
-  const isNorthCoast = normCity.includes('jakarta') || normCity.includes('surabaya') || normCity.includes('semarang') || normCity.includes('cirebon') || (normCity.includes('jakarta') && normCity.includes('utara')) || (normCity.includes('kota') && normCity.includes('kupang')) || normCity.includes('jayapura') || normCity.includes('pekalongan') || normCity.includes('tegal') || normCity.includes('pasuruan') || normCity.includes('probolinggo') || normCity.includes('tuban') || normCity.includes('gresik') || normCity.includes('medan') || normCity.includes('lhokseumawe');
+  
+  // Flores Sea coastlines:
+  const isFloresSea = normCity.includes('flores') || normCity.includes('lembata') || normCity.includes('alor') ||
+                      normCity.includes('sikka') || normCity.includes('manggarai') || normCity.includes('ngada') ||
+                      normCity.includes('nagekeo') || normCity.includes('ende');
+  
+  // Banda Sea island coastlines:
+  const isBandaSea = normCity.includes('ambon') || normCity.includes('buru') || normCity.includes('tual') ||
+                     normCity.includes('tanimbar') || normCity.includes('aru') || normCity.includes('barat daya') ||
+                     normCity.includes('maluku tengah');
+
+  // Java Sea coastlines:
+  const isJavaNorthCoast = normCity.includes('jakarta') || normCity.includes('surabaya') || normCity.includes('semarang') ||
+                           normCity.includes('cirebon') || normCity.includes('pekalongan') || normCity.includes('tegal') ||
+                           normCity.includes('pasuruan') || normCity.includes('probolinggo') || normCity.includes('tuban') ||
+                           normCity.includes('gresik') || normCity.includes('brebes') || normCity.includes('indramayu');
+
+  const isBanjarmasin = normCity.includes('banjarmasin');
+
+  const isNorthCoast = isJavaNorthCoast || (normCity.includes('kota') && normCity.includes('kupang')) || normCity.includes('jayapura') || normCity.includes('medan') || normCity.includes('lhokseumawe');
   const isWestCoast = normCity.includes('sorong') || normCity.includes('makassar') || normCity.includes('padang') || normCity.includes('bengkulu') || normCity.includes('singkawang') || normCity.includes('manado') || normCity.includes('mataram') || normCity.includes('aceh') || normCity.includes('sibolga') || normCity.includes('meulaboh') || normCity.includes('pariaman');
-  const isEastCoast = normCity.includes('tidore') || normCity.includes('ternate') || normCity.includes('balikpapan') || normCity.includes('kendari') || normCity.includes('denpasar') || normCity.includes('sanur') || normCity.includes('bontang') || normCity.includes('samarinda') || normCity.includes('gunungsitoli') || normCity.includes('ambon') || normCity.includes('tual') || normCity.includes('bitung');
+  const isEastCoast = normCity.includes('tidore') || normCity.includes('ternate') || normCity.includes('balikpapan') || normCity.includes('kendari') || normCity.includes('denpasar') || normCity.includes('sanur') || normCity.includes('bontang') || normCity.includes('samarinda') || normCity.includes('gunungsitoli') || normCity.includes('bitung');
   const isSouthCoast = normCity.includes('cilacap') || normCity.includes('kebumen') || normCity.includes('pacitan') || normCity.includes('gunungkidul') || normCity.includes('bantul') || normCity.includes('sukabumi') || normCity.includes('garut') || normCity.includes('tasikmalaya') || normCity.includes('pangandaran') || normCity.includes('jember') || normCity.includes('banyuwangi') || normCity.includes('blitar') || normCity.includes('malang');
 
   let angle: number;
   if (normCity.includes('ambon')) {
-    angle = Math.PI / 4 + (((hash % 8) - 4) / 8) * (Math.PI / 4); // Aim North-East into Leitimur mainland
+    angle = -Math.PI / 4 + (((hash % 8) - 4) / 8) * (Math.PI / 4); // Aim South-East into Leitimur mainland
+  } else if (isFloresSea) {
+    angle = -Math.PI / 2 + (((hash % 8) - 4) / 8) * (Math.PI / 4); // Strictly South into Flores island mainland away from Flores Sea
+  } else if (isBandaSea) {
+    angle = (normCity.includes('buru') || normCity.includes('tanimbar')) ? Math.PI : -Math.PI / 2; // Inward to island
+  } else if (isBanjarmasin) {
+    angle = Math.PI / 2 + (((hash % 8) - 4) / 8) * (Math.PI / 4); // North into Kalimantan mainland away from Java Sea
   } else if (isNorthCoast) {
     angle = -Math.PI / 2 + (((hash % 8) - 4) / 8) * (Math.PI / 3); // Aim South into mainland
   } else if (isWestCoast) {

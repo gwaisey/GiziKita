@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
 import { supabase } from '@/js/core/SupabaseClient';
 import NotificationService from '@/js/services/NotificationService';
-import { createFallbackRoute, degDistance, distanceKm, isValidRoute, clampCoordinatesToLand, resolveVehicleDestination } from '@/js/utils/routing';
+import { createFallbackRoute, degDistance, distanceKm, isValidRoute, clampCoordinatesToLand, resolveVehicleDestination, isCoordinateInOpenSea } from '@/js/utils/routing';
 
 
 export type VehicleStatus =
@@ -136,7 +136,7 @@ export const useVehicleStore = create<VehicleState>()(
               const hasCoords = destLng != null && destLat != null && Number.isFinite(destLng) && Number.isFinite(destLat);
               const curDist = hasCoords ? distanceKm(safeSppgLat, safeSppgLng, destLat as number, destLng as number) : 0;
 
-              if (!hasCoords || curDist < 1.0 || curDist > 3.0) {
+              if (!hasCoords || curDist < 1.0 || curDist > 3.0 || isCoordinateInOpenSea(destLat as number, destLng as number)) {
                 const resolved = resolveVehicleDestination(v, { lat: safeSppgLat, lng: safeSppgLng });
                 destLat = resolved.lat;
                 destLng = resolved.lng;

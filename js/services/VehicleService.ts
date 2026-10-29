@@ -245,13 +245,37 @@ class VehicleService {
           let hubLng = region.lng;
 
           const normR = region.name.toLowerCase();
-          const isNorthCoast = normR.includes('jakarta') || normR.includes('surabaya') || normR.includes('semarang') || normR.includes('cirebon') || normR.includes('utara') || normR.includes('kupang') || normR.includes('jayapura') || normR.includes('pekalongan') || normR.includes('tegal') || normR.includes('pasuruan') || normR.includes('probolinggo') || normR.includes('tuban') || normR.includes('gresik') || normR.includes('medan') || normR.includes('lhokseumawe');
+          const isFloresSea = normR.includes('flores') || normR.includes('lembata') || normR.includes('alor') ||
+                              normR.includes('sikka') || normR.includes('manggarai') || normR.includes('ngada') ||
+                              normR.includes('nagekeo') || normR.includes('ende');
+          const isBandaSea = normR.includes('ambon') || normR.includes('buru') || normR.includes('tual') ||
+                             normR.includes('tanimbar') || normR.includes('aru') || normR.includes('barat daya') ||
+                             normR.includes('maluku tengah');
+          const isJavaNorthCoast = normR.includes('jakarta') || normR.includes('surabaya') || normR.includes('semarang') ||
+                                   normR.includes('cirebon') || normR.includes('pekalongan') || normR.includes('tegal') ||
+                                   normR.includes('pasuruan') || normR.includes('probolinggo') || normR.includes('tuban') ||
+                                   normR.includes('gresik') || normR.includes('brebes') || normR.includes('indramayu');
+          const isBanjarmasin = normR.includes('banjarmasin');
+
+          const isNorthCoast = isJavaNorthCoast || (normR.includes('kota') && normR.includes('kupang')) || normR.includes('jayapura') || normR.includes('medan') || normR.includes('lhokseumawe');
           const isWestCoast = normR.includes('sorong') || normR.includes('makassar') || normR.includes('padang') || normR.includes('bengkulu') || normR.includes('singkawang') || normR.includes('manado') || normR.includes('mataram') || normR.includes('aceh') || normR.includes('sibolga') || normR.includes('meulaboh') || normR.includes('pariaman');
-          const isEastCoast = normR.includes('tidore') || normR.includes('ternate') || normR.includes('balikpapan') || normR.includes('kendari') || normR.includes('denpasar') || normR.includes('sanur') || normR.includes('bontang') || normR.includes('samarinda') || normR.includes('gunungsitoli') || normR.includes('ambon') || normR.includes('tual') || normR.includes('bitung');
+          const isEastCoast = normR.includes('tidore') || normR.includes('ternate') || normR.includes('balikpapan') || normR.includes('kendari') || normR.includes('denpasar') || normR.includes('sanur') || normR.includes('bontang') || normR.includes('samarinda') || normR.includes('gunungsitoli') || normR.includes('bitung');
           const isSouthCoast = normR.includes('cilacap') || normR.includes('kebumen') || normR.includes('pacitan') || normR.includes('gunungkidul') || normR.includes('bantul') || normR.includes('sukabumi') || normR.includes('garut') || normR.includes('tasikmalaya') || normR.includes('pangandaran') || normR.includes('jember') || normR.includes('banyuwangi') || normR.includes('blitar') || normR.includes('malang');
 
           if (i === 1) {
-            if (isEastCoast) {
+            if (normR.includes('ambon')) {
+              hubLat = region.lat - 0.005; // South-East into Leitimur
+              hubLng = region.lng + 0.004;
+            } else if (normR.includes('buru') && normR.includes('selatan')) {
+              hubLat = region.lat + 0.007; // North into Buru island inland
+              hubLng = region.lng - 0.002;
+            } else if (isFloresSea) {
+              hubLat = region.lat - 0.006; // South into Flores island mainland away from Flores Sea
+              hubLng = region.lng - 0.003;
+            } else if (isBanjarmasin) {
+              hubLat = region.lat + 0.006; // North into Kalimantan away from Java Sea
+              hubLng = region.lng - 0.003;
+            } else if (isEastCoast) {
               hubLat = region.lat + 0.005;
               hubLng = region.lng - 0.003; // Inland West
             } else if (isWestCoast) {
@@ -264,11 +288,23 @@ class VehicleService {
               hubLat = region.lat + 0.005; // Inland North
               hubLng = region.lng + 0.003;
             } else {
-              hubLat = region.lat + 0.007;
-              hubLng = region.lng + 0.007;
+              hubLat = region.lat + 0.005;
+              hubLng = region.lng + 0.005;
             }
           } else if (i === 2) {
-            if (isEastCoast) {
+            if (normR.includes('ambon')) {
+              hubLat = region.lat - 0.006;
+              hubLng = region.lng + 0.002;
+            } else if (normR.includes('buru') && normR.includes('selatan')) {
+              hubLat = region.lat + 0.010;
+              hubLng = region.lng + 0.002;
+            } else if (isFloresSea) {
+              hubLat = region.lat - 0.008; // South into Flores island mainland
+              hubLng = region.lng + 0.003;
+            } else if (isBanjarmasin) {
+              hubLat = region.lat + 0.008;
+              hubLng = region.lng + 0.003;
+            } else if (isEastCoast) {
               hubLat = region.lat - 0.005;
               hubLng = region.lng - 0.003; // Inland West
             } else if (isWestCoast) {
@@ -281,8 +317,8 @@ class VehicleService {
               hubLat = region.lat + 0.005; // Inland North
               hubLng = region.lng - 0.003;
             } else {
-              hubLat = region.lat - 0.007;
-              hubLng = region.lng - 0.007;
+              hubLat = region.lat - 0.005;
+              hubLng = region.lng - 0.005;
             }
           }
 
@@ -310,7 +346,15 @@ class VehicleService {
           const distToCenter = Math.hypot(dLat, dLng);
 
           let destinationAngle: number;
-          if (distToCenter > 0.005) {
+          if (normR.includes('ambon')) {
+            destinationAngle = -Math.PI / 4 + (Math.random() - 0.5) * 0.6; // Southeast into Leitimur
+          } else if (isFloresSea) {
+            destinationAngle = -Math.PI / 2 + (Math.random() - 0.5) * 0.6; // South into Flores island mainland
+          } else if (isBandaSea) {
+            destinationAngle = (normR.includes('buru') || normR.includes('tanimbar')) ? Math.PI : -Math.PI / 2;
+          } else if (isBanjarmasin) {
+            destinationAngle = Math.PI / 2 + (Math.random() - 0.5) * 0.6; // North into Kalimantan
+          } else if (distToCenter > 0.005) {
             destinationAngle = Math.atan2(dLat, dLng) + (Math.random() - 0.5) * 0.8;
           } else if (isNorthCoast) {
             destinationAngle = -Math.PI / 2 + (Math.random() - 0.5) * 0.8; // South into land
