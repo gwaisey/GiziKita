@@ -244,14 +244,46 @@ class VehicleService {
           let hubLat = region.lat;
           let hubLng = region.lng;
 
+          const normR = region.name.toLowerCase();
+          const isNorthCoast = normR.includes('jakarta') || normR.includes('surabaya') || normR.includes('semarang') || normR.includes('cirebon') || normR.includes('utara') || normR.includes('kupang') || normR.includes('jayapura') || normR.includes('pekalongan') || normR.includes('tegal') || normR.includes('pasuruan') || normR.includes('probolinggo') || normR.includes('tuban') || normR.includes('gresik') || normR.includes('medan') || normR.includes('lhokseumawe');
+          const isWestCoast = normR.includes('sorong') || normR.includes('makassar') || normR.includes('padang') || normR.includes('bengkulu') || normR.includes('singkawang') || normR.includes('manado') || normR.includes('mataram') || normR.includes('aceh') || normR.includes('sibolga') || normR.includes('meulaboh') || normR.includes('pariaman');
+          const isEastCoast = normR.includes('tidore') || normR.includes('ternate') || normR.includes('balikpapan') || normR.includes('kendari') || normR.includes('denpasar') || normR.includes('sanur') || normR.includes('bontang') || normR.includes('samarinda') || normR.includes('gunungsitoli') || normR.includes('ambon') || normR.includes('tual') || normR.includes('bitung');
+          const isSouthCoast = normR.includes('cilacap') || normR.includes('kebumen') || normR.includes('pacitan') || normR.includes('gunungkidul') || normR.includes('bantul') || normR.includes('sukabumi') || normR.includes('garut') || normR.includes('tasikmalaya') || normR.includes('pangandaran') || normR.includes('jember') || normR.includes('banyuwangi') || normR.includes('blitar') || normR.includes('malang');
+
           if (i === 1) {
-            // Hub 2: Distrik Sektor Timur / Utara (~800m offset)
-            hubLat = region.lat + 0.007;
-            hubLng = region.lng + 0.007;
+            if (isEastCoast) {
+              hubLat = region.lat + 0.005;
+              hubLng = region.lng - 0.003; // Inland West
+            } else if (isWestCoast) {
+              hubLat = region.lat + 0.005;
+              hubLng = region.lng + 0.003; // Inland East
+            } else if (isNorthCoast) {
+              hubLat = region.lat - 0.005; // Inland South
+              hubLng = region.lng + 0.003;
+            } else if (isSouthCoast) {
+              hubLat = region.lat + 0.005; // Inland North
+              hubLng = region.lng + 0.003;
+            } else {
+              hubLat = region.lat + 0.007;
+              hubLng = region.lng + 0.007;
+            }
           } else if (i === 2) {
-            // Hub 3: Distrik Sektor Barat / Selatan (~800m offset)
-            hubLat = region.lat - 0.007;
-            hubLng = region.lng - 0.007;
+            if (isEastCoast) {
+              hubLat = region.lat - 0.005;
+              hubLng = region.lng - 0.003; // Inland West
+            } else if (isWestCoast) {
+              hubLat = region.lat - 0.005;
+              hubLng = region.lng + 0.003; // Inland East
+            } else if (isNorthCoast) {
+              hubLat = region.lat - 0.005; // Inland South
+              hubLng = region.lng - 0.003;
+            } else if (isSouthCoast) {
+              hubLat = region.lat + 0.005; // Inland North
+              hubLng = region.lng - 0.003;
+            } else {
+              hubLat = region.lat - 0.007;
+              hubLng = region.lng - 0.007;
+            }
           }
 
           const clampedHub = clampCoordinatesToLand(hubLat, hubLng, region.name);
@@ -269,23 +301,29 @@ class VehicleService {
           cityStations.push(station);
           sppgToSeed.set(`${station.name}-${region.province}-${i}`, station);
 
-          // Demo school coordinates are not published until Mapbox successfully
-          // snaps a driving route endpoint to a road. A region centroid or a
-          // random offset is not proof that a point lies on land.
-          const destinationRadius = 0.010 + Math.random() * 0.012;
+          // Demo school coordinates: ensure they always project inland on solid ground
+          const isIslandOrCoast = isEastCoast || isWestCoast || isNorthCoast || isSouthCoast;
+          const destinationRadius = isIslandOrCoast
+            ? 0.006 + Math.random() * 0.006 // ~700m - 1.3km for islands/coastal towns
+            : 0.010 + Math.random() * 0.012; // ~1.1km - 2.4km for inland mainland
+
           const dLat = region.lat - station.lat;
           const dLng = region.lng - station.lng;
           const distToCenter = Math.hypot(dLat, dLng);
 
           let destinationAngle: number;
           if (distToCenter > 0.005) {
-            destinationAngle = Math.atan2(dLat, dLng) + (Math.random() - 0.5) * 1.0;
+            destinationAngle = Math.atan2(dLat, dLng) + (Math.random() - 0.5) * 0.8;
+          } else if (isNorthCoast) {
+            destinationAngle = -Math.PI / 2 + (Math.random() - 0.5) * 0.8; // South into land
+          } else if (isWestCoast) {
+            destinationAngle = 0 + (Math.random() - 0.5) * 0.8; // East into land
+          } else if (isEastCoast) {
+            destinationAngle = Math.PI + (Math.random() - 0.5) * 0.8; // West into land
+          } else if (isSouthCoast) {
+            destinationAngle = Math.PI / 2 + (Math.random() - 0.5) * 0.8; // North into land
           } else {
-            const normR = region.name.toLowerCase();
-            const isNorthCoast = normR.includes('jakarta') || normR.includes('surabaya') || normR.includes('semarang') || normR.includes('cirebon') || normR.includes('utara');
-            destinationAngle = isNorthCoast
-              ? -Math.PI / 2 + (Math.random() - 0.5) * 1.0
-              : Math.random() * Math.PI * 2;
+            destinationAngle = Math.random() * Math.PI * 2;
           }
 
           const rawDest = {

@@ -71,6 +71,33 @@ describe('routing land-clamping safety', () => {
     expect(denpasar.lng).toBeLessThanOrEqual(115.250);
   });
 
+  it('clamps offshore coordinates in Kota Tidore Kepulauan westward onto land', () => {
+    // 127.45 in Tidore is out in the Maluku sea off the east coast of Soasio
+    const lat = 0.684;
+    const offshoreLng = 127.450;
+    const clamped = clampCoordinatesToLand(lat, offshoreLng, 'Kota Tidore Kepulauan');
+
+    expect(clamped.lng).toBeLessThanOrEqual(127.430);
+    expect(clamped.lng).toBeGreaterThanOrEqual(127.410);
+    expect(clamped.lat).toBeGreaterThanOrEqual(0.640);
+    expect(clamped.lat).toBeLessThanOrEqual(0.720);
+  });
+
+  it('clamps offshore vehicle destination in Kota Tidore Kepulauan onto land', () => {
+    const vehicle = {
+      id: 'tidore-veh-1',
+      license_plate: 'DG 1234 BGN',
+      city: 'Kota Tidore Kepulauan',
+      destination_lat: 0.6841,
+      destination_lng: 127.4550, // in the sea
+      destination_school_name: 'Sekolah Bina Gizi Kota Tidore Kepulauan #1'
+    };
+
+    const resolved = resolveVehicleDestination(vehicle);
+    expect(resolved.lng).toBeLessThanOrEqual(127.430);
+    expect(resolved.lng).toBeGreaterThanOrEqual(127.410);
+  });
+
   it('universal safeguard pulls any coordinates drifting far from regional center back to safe urban radius', () => {
     // Coordinate 15km out into the ocean
     const clamped = clampCoordinatesToLand(-8.8, 115.1, 'Kota Denpasar');

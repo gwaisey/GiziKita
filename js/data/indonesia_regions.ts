@@ -40,7 +40,7 @@ export const INDONESIA_514_REGIONS: RegionData[] = [
 
   // --- MALUKU UTARA (DG) - 100% VERIFIED ---
   { name: 'Kota Ternate', province: 'Maluku Utara', prefix: 'DG', lat: 0.7907, lng: 127.3831, isKota: true },
-  { name: 'Kota Tidore Kepulauan', province: 'Maluku Utara', prefix: 'DG', lat: 0.6841, lng: 127.4442, isKota: true },
+  { name: 'Kota Tidore Kepulauan', province: 'Maluku Utara', prefix: 'DG', lat: 0.6825, lng: 127.4280, isKota: true },
   { name: 'Halmahera Barat', province: 'Maluku Utara', prefix: 'DG', lat: 1.2833, lng: 127.5000, isKota: false },
   { name: 'Halmahera Tengah', province: 'Maluku Utara', prefix: 'DG', lat: 0.4833, lng: 128.1667, isKota: false },
   { name: 'Halmahera Utara', province: 'Maluku Utara', prefix: 'DG', lat: 1.7333, lng: 128.0000, isKota: false },

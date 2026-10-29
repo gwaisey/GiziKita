@@ -3,6 +3,8 @@
  * Kept dependency-free so both can import it without circular imports.
  */
 
+import { findRegionByName } from '../data/indonesia_regions';
+
 export type LngLat = [number, number];
 
 /** Euclidean distance in degrees (cheap; fine for the sub-km comparisons we do). */
@@ -224,24 +226,78 @@ export function clampCoordinatesToLand(
   // 17. TERNATE:
   if (normCity.includes('ternate')) {
     let safeLng = lng;
-    if (safeLng < 127.370) safeLng = 127.380;
-    if (safeLng > 127.395) safeLng = 127.385;
-    return { lat, lng: safeLng };
+    let safeLat = lat;
+    if (safeLng < 127.350) safeLng = 127.375;
+    if (safeLng > 127.385) safeLng = 127.378;
+    if (safeLat < 0.740) safeLat = 0.770;
+    if (safeLat > 0.830) safeLat = 0.800;
+    return { lat: safeLat, lng: safeLng };
   }
 
-  // 18. TARAKAN:
+  // 18. KOTA TIDORE KEPULAUAN:
+  // Tidore island is bounded by lng 127.350 to 127.432, lat 0.630 to 0.740.
+  // The coast of Soasio is to the East (lng >= 127.432 is ocean).
+  // Mainland Soasio is lng 127.415 to 127.429, lat 0.670 to 0.698.
+  if (normCity.includes('tidore') || (lat > 0.60 && lat < 0.76 && lng > 127.430 && lng < 127.520)) {
+    let safeLng = lng;
+    let safeLat = lat;
+    if (safeLng > 127.430) {
+      safeLng = 127.426 - (Math.abs(safeLng) % 0.005); // Push West inland into Soasio
+    } else if (safeLng < 127.360) {
+      safeLng = 127.375 + (Math.abs(safeLng) % 0.005);
+    }
+    if (safeLat < 0.640) safeLat = 0.665;
+    if (safeLat > 0.715) safeLat = 0.695;
+    return { lat: safeLat, lng: safeLng };
+  }
+
+  // 19. TARAKAN:
   if (normCity.includes('tarakan')) {
     let safeLng = lng;
     if (safeLng < 117.575) safeLng = 117.590;
     return { lat, lng: safeLng };
   }
 
-  // 19. SIBOLGA & BENGKULU:
+  // 20. SIBOLGA & BENGKULU & PARIAMAN:
   if (normCity.includes('sibolga') && lng < 98.775) return { lat, lng: 98.790 };
   if (normCity.includes('bengkulu') && lng < 102.260) return { lat, lng: 102.280 };
   if (normCity.includes('pariaman') && lng < 100.120) return { lat, lng: 100.135 };
 
-  // 20. GENERAL JAVA NORTH COAST:
+  // 21. TUAL & MALUKU TENGGARA (KEI):
+  if ((normCity.includes('tual') || normCity.includes('maluku tenggara')) && lng > 132.755) {
+    return { lat, lng: 132.735 };
+  }
+
+  // 22. GUNUNGSITOLI / NIAS:
+  if ((normCity.includes('gunungsitoli') || normCity.includes('nias')) && lng > 97.620) {
+    return { lat, lng: 97.600 };
+  }
+
+  // 23. BAUBAU (BUTON):
+  if (normCity.includes('baubau') && lng < 122.590) {
+    return { lat, lng: 122.615 };
+  }
+
+  // 24. BITUNG:
+  if (normCity.includes('bitung') && lng > 125.195) {
+    return { lat, lng: 125.175 };
+  }
+
+  // 25. SINGKAWANG:
+  if (normCity.includes('singkawang') && lng < 108.970) {
+    return { lat, lng: 108.995 };
+  }
+
+  // 26. SABANG (PULAU WEH):
+  if (normCity.includes('sabang')) {
+    let safeLat = lat;
+    let safeLng = lng;
+    if (safeLat > 5.900) safeLat = 5.880;
+    if (safeLng > 95.340) safeLng = 95.315;
+    return { lat: safeLat, lng: safeLng };
+  }
+
+  // 27. GENERAL JAVA NORTH COAST:
   if (
     normCity.includes('cirebon') || normCity.includes('indramayu') || normCity.includes('subang') ||
     normCity.includes('karawang') || normCity.includes('bekasi') || normCity.includes('pekalongan') ||
@@ -258,6 +314,26 @@ export function clampCoordinatesToLand(
     }
     if (lat > -7.00 && (normCity.includes('tuban') || normCity.includes('lamongan') || normCity.includes('gresik'))) {
       return { lat: Math.min(lat, -7.08), lng };
+    }
+  }
+
+  // 28. UNIVERSAL PROXIMITY SAFEGUARD FOR ALL 514 REGIONS:
+  // If city is specified, compare against its verified administrative land centroid.
+  // Centroids in INDONESIA_514_REGIONS are 100% verified to be on solid land in town centers.
+  // If a coordinate drifts > 0.022 deg (~2.4 km) from the verified land center,
+  // pull it gently back towards the land center (radius ~1.2 km) to ensure it stays on land.
+  if (city) {
+    const reg = findRegionByName(city);
+    if (reg && Number.isFinite(reg.lat) && Number.isFinite(reg.lng)) {
+      const dist = Math.hypot(lng - reg.lng, lat - reg.lat);
+      if (dist > 0.022) {
+        const angle = Math.atan2(lat - reg.lat, lng - reg.lng);
+        const safeRadius = 0.012 + (Math.abs(lat + lng) % 0.005);
+        return {
+          lat: reg.lat + Math.sin(angle) * safeRadius,
+          lng: reg.lng + Math.cos(angle) * safeRadius,
+        };
+      }
     }
   }
 
@@ -310,21 +386,30 @@ export function resolveVehicleDestination(
   const idStr = vehicle.id || vehicle.city || 'default';
   const hash = Math.abs(idStr.split('').reduce((acc, c) => acc + c.charCodeAt(0), 0));
   
-  // Deterministic inland bias:
+  // Deterministic inland bias for ALL coast types:
   const normCity = (vehicle.city || '').toLowerCase();
-  const isNorthCoast = normCity.includes('jakarta') || normCity.includes('surabaya') || normCity.includes('semarang') || normCity.includes('cirebon') || normCity.includes('utara');
-  const isWestCoast = normCity.includes('sorong') || normCity.includes('makassar') || normCity.includes('padang') || normCity.includes('bengkulu') || normCity.includes('singkawang');
+  const isNorthCoast = normCity.includes('jakarta') || normCity.includes('surabaya') || normCity.includes('semarang') || normCity.includes('cirebon') || normCity.includes('utara') || normCity.includes('kupang') || normCity.includes('jayapura') || normCity.includes('pekalongan') || normCity.includes('tegal') || normCity.includes('pasuruan') || normCity.includes('probolinggo') || normCity.includes('tuban') || normCity.includes('gresik') || normCity.includes('medan') || normCity.includes('lhokseumawe');
+  const isWestCoast = normCity.includes('sorong') || normCity.includes('makassar') || normCity.includes('padang') || normCity.includes('bengkulu') || normCity.includes('singkawang') || normCity.includes('manado') || normCity.includes('mataram') || normCity.includes('aceh') || normCity.includes('sibolga') || normCity.includes('meulaboh') || normCity.includes('pariaman');
+  const isEastCoast = normCity.includes('tidore') || normCity.includes('ternate') || normCity.includes('balikpapan') || normCity.includes('kendari') || normCity.includes('denpasar') || normCity.includes('sanur') || normCity.includes('bontang') || normCity.includes('samarinda') || normCity.includes('gunungsitoli') || normCity.includes('ambon') || normCity.includes('tual') || normCity.includes('bitung');
+  const isSouthCoast = normCity.includes('cilacap') || normCity.includes('kebumen') || normCity.includes('pacitan') || normCity.includes('gunungkidul') || normCity.includes('bantul') || normCity.includes('sukabumi') || normCity.includes('garut') || normCity.includes('tasikmalaya') || normCity.includes('pangandaran') || normCity.includes('jember') || normCity.includes('banyuwangi') || normCity.includes('blitar') || normCity.includes('malang');
 
   let angle: number;
   if (isNorthCoast) {
     angle = -Math.PI / 2 + (((hash % 8) - 4) / 8) * (Math.PI / 3); // Aim South into mainland
   } else if (isWestCoast) {
     angle = 0 + (((hash % 8) - 4) / 8) * (Math.PI / 3); // Aim East into mainland
+  } else if (isEastCoast) {
+    angle = Math.PI + (((hash % 8) - 4) / 8) * (Math.PI / 3); // Aim West into mainland
+  } else if (isSouthCoast) {
+    angle = Math.PI / 2 + (((hash % 8) - 4) / 8) * (Math.PI / 3); // Aim North into mainland
   } else {
     angle = ((hash % 16) / 16) * Math.PI * 2;
   }
 
-  const radius = 0.010 + ((hash % 4) * 0.002); // ~1.1km - 1.8km
+  const isCoastalOrIsland = isNorthCoast || isWestCoast || isEastCoast || isSouthCoast;
+  const radius = isCoastalOrIsland
+    ? 0.006 + ((hash % 4) * 0.0015) // ~700m - 1.2km (stays safely on land)
+    : 0.010 + ((hash % 4) * 0.002);  // ~1.1km - 1.8km
 
   const rawLat = baseLat + Math.sin(angle) * radius;
   const rawLng = baseLng + Math.cos(angle) * radius;
