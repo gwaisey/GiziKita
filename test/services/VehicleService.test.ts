@@ -193,7 +193,7 @@ describe('VehicleService', () => {
       expect(useVehicleStore.getState().vehicles[0].status).toBe('unloading');
     });
 
-    it('transitions unloading vehicle to idle at hub after dwell time expires', async () => {
+    it('remains parked at destination school in unloading status (Option B: target-driven delivery)', async () => {
       const vehicle: Vehicle = {
         id: 'dwell-expire-check',
         license_plate: 'DH 5001 BGN',
@@ -212,71 +212,90 @@ describe('VehicleService', () => {
       };
       useVehicleStore.setState({ vehicles: [vehicle] });
 
-      // First step registers the dwell timer
+      // First step registers unloading at school
       await VehicleService.simulateStep();
       expect(useVehicleStore.getState().vehicles[0].status).toBe('unloading');
+      expect(useVehicleStore.getState().vehicles[0].last_lng).toBe(121.95); // At destination school
 
-      // Advance Date.now past the max dwell time (e.g. +35 seconds)
+      // Advance Date.now past 35s or even minutes
       const originalNow = Date.now;
       try {
         Date.now = () => originalNow() + 35000;
         await VehicleService.simulateStep();
 
+        // Under Option B, vehicle remains parked at school in unloading status
         const updated = useVehicleStore.getState().vehicles[0];
-        expect(updated.status).toBe('idle');
-        expect(updated.route_progress).toBe(0);
-        expect(updated.last_lng).toBe(121.85); // Resets to SPPG Hub (route[0])
+        expect(updated.status).toBe('unloading');
+        expect(updated.route_progress).toBe(1);
+        expect(updated.last_lng).toBe(121.95); // Remains at school, DOES NOT loop back to SPPG
         expect(updated.last_lat).toBe(-10.5);
       } finally {
         Date.now = originalNow;
       }
     });
 
-    it('holds idle turnaround vehicle before departing on next route', async () => {
-      const vehicle: Vehicle = {
-        id: 'turnaround-check',
-        license_plate: 'DH 5002 BGN',
-        driver_name: 'Demo Driver',
-        status: 'unloading',
-        city: 'Sabu Raijua',
-        last_lat: -10.5,
-        last_lng: 121.95,
-        destination_lat: -10.5,
-        destination_lng: 121.95,
-        route_geometry: [[121.85, -10.5], [121.95, -10.5]],
-        route_source: 'mapbox_driving',
-        route_progress: 1,
-        bearing: 90,
-        updated_at: new Date().toISOString(),
-      };
-      useVehicleStore.setState({ vehicles: [vehicle] });
+    it('detects isAllDelivered when all vehicles have arrived and parked at destination', () => {
+      const vehicles: Vehicle[] = [
+        {
+          id: 'v1',
+          license_plate: 'DH 5001 BGN',
+          driver_name: 'Driver 1',
+          status: 'unloading',
+          city: 'Sabu Raijua',
+          last_lat: -10.5,
+          last_lng: 121.95,
+          route_progress: 1,
+          updated_at: new Date().toISOString(),
+        },
+        {
+          id: 'v2',
+          license_plate: 'DH 5002 BGN',
+          driver_name: 'Driver 2',
+          status: 'unloading',
+          city: 'Sabu Raijua',
+          last_lat: -10.5,
+          last_lng: 121.95,
+          route_progress: 1,
+          updated_at: new Date().toISOString(),
+        },
+      ];
+      useVehicleStore.setState({ vehicles });
+      expect(VehicleService.isAllDelivered()).toBe(true);
 
-      const originalNow = Date.now;
-      let simulatedTime = originalNow();
-      Date.now = () => simulatedTime;
+      // If even one is still en_route, isAllDelivered must be false
+      useVehicleStore.setState({
+        vehicles: [
+          vehicles[0],
+          { ...vehicles[1], status: 'en_route' },
+        ],
+      });
+      expect(VehicleService.isAllDelivered()).toBe(false);
+    });
 
-      try {
-        // Step 1: registers unloading
-        await VehicleService.simulateStep();
-        expect(useVehicleStore.getState().vehicles[0].status).toBe('unloading');
+    it('resets all parked vehicles back to idle at SPPG hub when stopSimulation is called', () => {
+      const vehicles: Vehicle[] = [
+        {
+          id: 'v1',
+          license_plate: 'DH 5001 BGN',
+          driver_name: 'Driver 1',
+          status: 'unloading',
+          city: 'Sabu Raijua',
+          last_lat: -10.5,
+          last_lng: 121.95,
+          route_geometry: [[121.85, -10.5], [121.95, -10.5]],
+          route_progress: 1,
+          updated_at: new Date().toISOString(),
+        },
+      ];
+      useVehicleStore.setState({ vehicles });
 
-        // Step 2: advance +35s, unloading finishes, vehicle transitions to idle
-        simulatedTime += 35000;
-        await VehicleService.simulateStep();
-        expect(useVehicleStore.getState().vehicles[0].status).toBe('idle');
+      VehicleService.stopSimulation();
 
-        // Step 3: advance only +2s, vehicle must still be idling (turnaround takes 8-15s)
-        simulatedTime += 2000;
-        await VehicleService.simulateStep();
-        expect(useVehicleStore.getState().vehicles[0].status).toBe('idle');
-
-        // Step 4: advance +20s, turnaround finishes, vehicle departs en_route
-        simulatedTime += 20000;
-        await VehicleService.simulateStep();
-        expect(useVehicleStore.getState().vehicles[0].status).toBe('en_route');
-      } finally {
-        Date.now = originalNow;
-      }
+      const updated = useVehicleStore.getState().vehicles[0];
+      expect(updated.status).toBe('idle');
+      expect(updated.route_progress).toBe(0);
+      expect(updated.last_lng).toBe(121.85); // Back at SPPG hub origin
+      expect(updated.last_lat).toBe(-10.5);
     });
 
     it('ensures 100% of idle, loading, and delayed vehicles depart to en_route on first simulation tick', async () => {

@@ -641,33 +641,31 @@ void Promise.allSettled([
 
     // Reset all vehicles back to idle (Siaga) stationed at their regional SPPG Hub
     const ACTIVE_STATUSES: VehicleStatus[] = ['en_route', 'delayed', 'unloading', 'loading'];
-    import('@/js/data/indonesia_regions').then(({ resolveSppgLocation }) => {
-      useVehicleStore.setState(state => ({
-        vehicles: state.vehicles.map(v => {
-          if (ACTIVE_STATUSES.includes(v.status) || v.status === 'idle') {
-            // A routed vehicle's origin (route[0]) IS its hub; otherwise resolve the hub.
-            const origin = v.route_geometry && v.route_geometry.length > 0
-              ? v.route_geometry[0]
-              : null;
-            const sppgLoc = origin ? null : resolveSppgLocation(v.city, undefined, {
-              vehicleLat: v.last_lat,
-              vehicleLng: v.last_lng,
-            });
-            const sppgLng = origin ? origin[0] : (sppgLoc?.lng ?? v.last_lng);
-            const sppgLat = origin ? origin[1] : (sppgLoc?.lat ?? v.last_lat);
+    useVehicleStore.setState(state => ({
+      vehicles: state.vehicles.map(v => {
+        if (ACTIVE_STATUSES.includes(v.status) || v.status === 'idle') {
+          // A routed vehicle's origin (route[0]) IS its hub; otherwise resolve the hub.
+          const origin = v.route_geometry && v.route_geometry.length > 0
+            ? v.route_geometry[0]
+            : null;
+          const sppgLoc = origin ? null : resolveSppgLocation(v.city, undefined, {
+            vehicleLat: v.last_lat,
+            vehicleLng: v.last_lng,
+          });
+          const sppgLng = origin ? origin[0] : (sppgLoc?.lng ?? v.last_lng);
+          const sppgLat = origin ? origin[1] : (sppgLoc?.lat ?? v.last_lat);
 
-            return {
-              ...v,
-              status: 'idle' as VehicleStatus,
-              route_progress: 0,
-              last_lng: sppgLng,
-              last_lat: sppgLat,
-            };
-          }
-          return v;
-        })
-      }));
-    });
+          return {
+            ...v,
+            status: 'idle' as VehicleStatus,
+            route_progress: 0,
+            last_lng: sppgLng,
+            last_lat: sppgLat,
+          };
+        }
+        return v;
+      })
+    }));
   }
 
   private stopBackgroundSync() {
@@ -675,6 +673,13 @@ void Promise.allSettled([
       clearInterval(this.syncInterval);
       this.syncInterval = null;
     }
+  }
+
+  /** Returns true if all operational vehicles have completed delivery and are parked at schools */
+  public isAllDelivered(): boolean {
+    const vehicles = useVehicleStore.getState().vehicles;
+    const operational = vehicles.filter(v => v.status !== 'offline' && v.status !== 'maintenance');
+    return operational.length > 0 && operational.every(v => v.status === 'unloading');
   }
 
   public getPositionAtProgress(geometry: number[][], progress: number): { lat: number, lng: number } {
@@ -777,7 +782,7 @@ void Promise.allSettled([
         let newStatus = v.status;
         let newBearing = v.bearing ?? 0;
 
-        // --- 2. UNLOADING DWELL ------------------------------------------------------
+        // --- 2. UNLOADING: PARKED AT DESTINATION SCHOOL (OPTION B) ------------------
         if (newStatus === 'unloading') {
           // Robust physical proximity verification: A vehicle can ONLY be 'unloading'
           // if it is physically at its destination school (< 300m / 0.003 deg).
@@ -792,42 +797,20 @@ void Promise.allSettled([
             this.unloadingStartedAt.delete(v.id);
             this.dwellDurations.delete(v.id);
           } else {
-            let startedAt = this.unloadingStartedAt.get(v.id);
-            if (!startedAt) {
-              startedAt = now;
-              this.unloadingStartedAt.set(v.id, startedAt);
-              this.dwellDurations.set(v.id, 15000 + (hashOf(v.id) % 11) * 1000); // 15s to 25s
-            }
-            const dwell = this.dwellDurations.get(v.id) ?? 15000;
-            if (now - startedAt >= dwell) {
-              // Unloading complete: return to SPPG Hub in 'idle' (Siaga)
-              newStatus = 'idle';
-              newProgress = 0;
-              newBearing = 0;
-              this.unloadingStartedAt.delete(v.id);
-              this.dwellDurations.delete(v.id);
-              this.idleStartedAt.set(v.id, now);
-              this.idleDurations.set(v.id, 8000 + (hashOf(v.id) % 8) * 1000); // 8s to 15s
+            // Option B: Vehicle remains PARKED at the destination school in 'unloading' status.
+            // It does NOT auto-restart or loop back while simulation is running.
+            newProgress = lastIndex;
+            if (!this.unloadingStartedAt.has(v.id)) {
+              this.unloadingStartedAt.set(v.id, now);
             }
           }
         }
 
-        // --- 3. IDLE / TURNAROUND ----------------------------------------------------
+        // --- 3. IDLE: DEPARTURE ON SIMULATION START ----------------------------------
         if (newStatus === 'idle') {
-          const startedAt = this.idleStartedAt.get(v.id);
-          if (startedAt) {
-            const turnaround = this.idleDurations.get(v.id) ?? 8000;
-            if (now - startedAt >= turnaround) {
-              newStatus = 'en_route';
-              newProgress = 0;
-              this.idleStartedAt.delete(v.id);
-              this.idleDurations.delete(v.id);
-            }
-          } else {
-            // First tick of the simulation: EVERY idle vehicle departs at once
-            newStatus = 'en_route';
-            newProgress = 0;
-          }
+          // Depart immediately when simulation is running
+          newStatus = 'en_route';
+          newProgress = 0;
         } else if (newStatus === 'delayed' || newStatus === 'loading') {
           newStatus = 'en_route';
           newProgress = 0;

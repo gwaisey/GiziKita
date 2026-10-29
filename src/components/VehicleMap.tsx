@@ -10,7 +10,7 @@ import { useQuery } from '@tanstack/react-query';
 import { INDONESIA_514_REGIONS, resolveSppgLocation, normalizeRegionName, findRegionByName } from '@/js/data/indonesia_regions';
 import VehicleService, { VEHICLE_STATUS_META } from '@/js/services/VehicleService';
 import { createFallbackRoute, isValidRoute, resolveVehicleDestination, clampCoordinatesToLand, isCoordinateInOpenSea } from '@/js/utils/routing';
-import { AlertTriangle, MapPin, Navigation, School, Trash2, User, X, Zap } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, MapPin, Navigation, School, Trash2, User, X, Zap } from 'lucide-react';
 import { supabase } from '@/js/core/SupabaseClient';
 import { queryKeys } from '@/src/lib/queryKeys';
 
@@ -299,6 +299,12 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
       return normalizeRegionName(v.city) === normalizeRegionName(selectedCity);
     });
   }, [vehicles, selectedCity]);
+
+  // Option B: All active vehicles have completed delivery and are parked at schools
+  const isAllDelivered = useMemo(() => {
+    const operational = filteredVehicles.filter(v => v.status !== 'offline' && v.status !== 'maintenance');
+    return operational.length > 0 && operational.every(v => v.status === 'unloading');
+  }, [filteredVehicles]);
 
   // --- Strict SPPG GeoJSON: Constructed SOLELY from active fleet vehicles ---
   // If an SPPG has no active vehicle, it CANNOT exist in this GeoJSON (Absolute 0% empty hubs).
@@ -1283,6 +1289,32 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
           );
         })()}
 
+        {simulationActive && isAllDelivered && (
+          <div style={{
+            position: 'absolute',
+            top: '20px',
+            left: '50%',
+            transform: 'translateX(-50%)',
+            zIndex: 35,
+            background: 'rgba(46, 125, 50, 0.95)',
+            color: '#ffffff',
+            backdropFilter: 'blur(12px)',
+            borderRadius: '24px',
+            padding: '10px 22px',
+            fontSize: '13px',
+            fontWeight: 700,
+            display: 'flex',
+            alignItems: 'center',
+            gap: '10px',
+            boxShadow: '0 8px 24px rgba(46, 125, 50, 0.4)',
+            border: '1px solid rgba(255, 255, 255, 0.35)',
+            pointerEvents: 'none'
+          }}>
+            <CheckCircle2 size={18} />
+            <span>Distribusi Selesai 100% • Seluruh Sekolah Telah Menerima Makanan</span>
+          </div>
+        )}
+
         {mapStatus === 'loading' && (
           <div className="map-state-overlay">
             <div className="map-spinner" />
@@ -1315,19 +1347,29 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
               cursor: vehicles.length === 0 && !simulationActive || isSeedingDemo || isClearingFleet ? 'not-allowed' : 'pointer', 
               opacity: vehicles.length === 0 && !simulationActive || isSeedingDemo || isClearingFleet ? 0.55 : 1,
               fontWeight: 800, 
-              background: simulationActive ? 'var(--gold)' : 'var(--maroon)',
-              color: simulationActive ? 'var(--text)' : 'var(--white)',
+              background: simulationActive 
+                ? (isAllDelivered ? '#2e7d32' : 'var(--gold)') 
+                : 'var(--maroon)',
+              color: simulationActive && !isAllDelivered ? 'var(--text)' : 'var(--white)',
               transition: 'all 0.3s ease',
               display: 'flex',
               alignItems: 'center',
               gap: '10px',
               textTransform: 'uppercase',
               whiteSpace: 'nowrap',
-              boxShadow: simulationActive ? '0 8px 20px rgba(244, 198, 98, 0.3)' : '0 8px 20px rgba(139, 28, 63, 0.2)'
+              boxShadow: simulationActive 
+                ? (isAllDelivered ? '0 8px 20px rgba(46, 125, 50, 0.4)' : '0 8px 20px rgba(244, 198, 98, 0.3)') 
+                : '0 8px 20px rgba(139, 28, 63, 0.2)'
             }}
           >
-            {simulationActive ? <Zap size={16} fill="currentColor" /> : <Zap size={16} />}
-            {simulationActive ? 'Hentikan Monitoring' : 'Mulai Simulasi'}
+            {simulationActive ? (
+              isAllDelivered ? <CheckCircle2 size={16} /> : <Zap size={16} fill="currentColor" />
+            ) : (
+              <Zap size={16} />
+            )}
+            {simulationActive 
+              ? (isAllDelivered ? 'Distribusi Selesai (Reset SPPG)' : 'Hentikan Monitoring') 
+              : 'Mulai Simulasi'}
           </button>
           
           <button
