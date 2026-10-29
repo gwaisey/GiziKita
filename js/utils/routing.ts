@@ -99,7 +99,9 @@ export function clampCoordinatesToLand(
   }
 
   // 2. DKI JAKARTA / JAKARTA UTARA:
-  if (normCity.includes('jakarta') || normCity.includes('utara') || (lat > -6.15 && lat < -6.05 && lng > 106.65 && lng < 107.00)) {
+  const isJakartaUtara = (normCity.includes('jakarta') && normCity.includes('utara')) || normCity === 'jakarta utara';
+  const isJakartaGeneral = normCity.includes('jakarta');
+  if (isJakartaUtara || isJakartaGeneral || (lat > -6.15 && lat < -6.05 && lng > 106.65 && lng < 107.00)) {
     let safeLat = lat;
     let safeLng = lng;
     if (safeLat > -6.125) {
@@ -152,8 +154,8 @@ export function clampCoordinatesToLand(
     return { lat: safeLat, lng: safeLng };
   }
 
-  // 8. KUPANG:
-  if (normCity.includes('kupang')) {
+  // 8. KOTA KUPANG:
+  if ((normCity.includes('kota') && normCity.includes('kupang')) || normCity === 'kota kupang') {
     let safeLat = lat;
     if (safeLat > -10.175) safeLat = -10.190 - (Math.abs(safeLat) % 0.015);
     return { lat: safeLat, lng };

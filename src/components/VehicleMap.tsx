@@ -310,11 +310,12 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
         });
 
         if (sppg && Number.isFinite(sppg.lng) && Number.isFinite(sppg.lat)) {
-          const key = sppg.id || sppg.name || `${sppg.lat.toFixed(5)},${sppg.lng.toFixed(5)}`;
+          const clamped = clampCoordinatesToLand(sppg.lat, sppg.lng, v.city);
+          const key = sppg.id || sppg.name || `${clamped.lat.toFixed(5)},${clamped.lng.toFixed(5)}`;
           if (!hubMap.has(key) && !offshoreMarkerIds.has(`sppg:${sppg.id ?? sppg.name}`)) {
             hubMap.set(key, {
               type: 'Feature',
-              geometry: { type: 'Point', coordinates: [sppg.lng, sppg.lat] },
+              geometry: { type: 'Point', coordinates: [clamped.lng, clamped.lat] },
               properties: { name: sppg.name || `SPPG ${v.city}`, city: v.city }
             });
           }
@@ -387,7 +388,8 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
         vehicleLat: v.last_lat,
         vehicleLng: v.last_lng,
       });
-      const resolved = resolveVehicleDestination(v, sppg);
+      const clampedSppg = sppg ? clampCoordinatesToLand(sppg.lat, sppg.lng, v.city) : null;
+      const resolved = resolveVehicleDestination(v, clampedSppg);
       const clamped = clampCoordinatesToLand(resolved.lat, resolved.lng, v.city);
       if (!schoolMap.has(resolved.name) && Number.isFinite(clamped.lng) && Number.isFinite(clamped.lat)) {
         schoolMap.set(resolved.name, {
@@ -494,6 +496,11 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
           }
         }
       }
+
+      // STRICT LAND CLAMP: Force every vehicle position on solid land
+      const clampedTarget = clampCoordinatesToLand(targetLat, targetLng, v.city);
+      targetLat = clampedTarget.lat;
+      targetLng = clampedTarget.lng;
 
       // Snap instantly when idle or when the marker is implausibly far from its target
       if (v.status === 'idle' || Math.hypot(s.lat - targetLat, s.lng - targetLng) > 0.005) {

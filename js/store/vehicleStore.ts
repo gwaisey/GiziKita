@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
 import { supabase } from '@/js/core/SupabaseClient';
 import NotificationService from '@/js/services/NotificationService';
-import { createFallbackRoute, degDistance, isValidRoute, clampCoordinatesToLand } from '@/js/utils/routing';
+import { createFallbackRoute, degDistance, isValidRoute, clampCoordinatesToLand, resolveVehicleDestination } from '@/js/utils/routing';
 
 
 export type VehicleStatus =
@@ -106,13 +106,19 @@ export const useVehicleStore = create<VehicleState>()(
               const idx = cityVehicleCounts.get(cityKey) || 0;
               cityVehicleCounts.set(cityKey, idx + 1);
 
+              const clLast = (v.last_lat != null && v.last_lng != null)
+                ? clampCoordinatesToLand(v.last_lat, v.last_lng, v.city)
+                : null;
+              const cleanLastLat = clLast ? clLast.lat : v.last_lat;
+              const cleanLastLng = clLast ? clLast.lng : v.last_lng;
+
               const sppgLoc = resolveSppgLocation(v.city, undefined, {
-                vehicleLat: v.last_lat,
-                vehicleLng: v.last_lng,
+                vehicleLat: cleanLastLat,
+                vehicleLng: cleanLastLng,
                 vehicleIndex: idx,
               });
-              const rawSppgLng = sppgLoc?.lng ?? v.last_lng;
-              const rawSppgLat = sppgLoc?.lat ?? v.last_lat;
+              const rawSppgLng = sppgLoc?.lng ?? cleanLastLng;
+              const rawSppgLat = sppgLoc?.lat ?? cleanLastLat;
               const clampedSppg = clampCoordinatesToLand(
                 rawSppgLat ?? -6.2,
                 rawSppgLng ?? 106.8,
@@ -121,41 +127,37 @@ export const useVehicleStore = create<VehicleState>()(
               const sppgLng = clampedSppg.lng;
               const sppgLat = clampedSppg.lat;
 
+              // Ensure destination is 100% on land and non-null
+              let destLng = v.destination_lng;
+              let destLat = v.destination_lat;
+              let destSchoolName = v.destination_school_name;
+              if (destLng == null || destLat == null || !Number.isFinite(destLng) || !Number.isFinite(destLat)) {
+                const resolved = resolveVehicleDestination(v, { lat: sppgLat, lng: sppgLng });
+                destLat = resolved.lat;
+                destLng = resolved.lng;
+                destSchoolName = resolved.name;
+              } else {
+                const clamped = clampCoordinatesToLand(destLat, destLng, v.city);
+                destLat = clamped.lat;
+                destLng = clamped.lng;
+              }
+
               const hasRoute = isValidRoute(v.route_geometry);
               const hasHub = sppgLng != null && sppgLat != null;
               const startsAtHub = hasRoute && (!hasHub
                 || degDistance(v.route_geometry![0], [sppgLng as number, sppgLat as number]) < 0.005);
-              let destLng = v.destination_lng;
-              let destLat = v.destination_lat;
-              let destWasClamped = false;
-              if (destLng != null && destLat != null && Number.isFinite(destLng) && Number.isFinite(destLat)) {
-                const clamped = clampCoordinatesToLand(destLat, destLng, v.city);
-                if (clamped.lat !== destLat || clamped.lng !== destLng) {
-                  destLat = clamped.lat;
-                  destLng = clamped.lng;
-                  destWasClamped = true;
-                }
-              }
-
-              const hasDestination = destLng != null && destLat != null
-                && Number.isFinite(destLng) && Number.isFinite(destLat);
+              const endsAtSchool = hasRoute
+                && degDistance(v.route_geometry![v.route_geometry!.length - 1], [destLng as number, destLat as number]) < 0.005;
 
               let routeGeometry = v.route_geometry;
               let routeSource = v.route_source;
-              if ((!startsAtHub || destWasClamped) && hasHub) {
-                if (hasDestination) {
-                  // Stale, offshore, or missing route: rebuild one that starts exactly at the hub
-                  // and ends safely on land at this vehicle's own school.
-                  routeGeometry = createFallbackRoute(
-                    { lng: sppgLng as number, lat: sppgLat as number },
-                    { lng: destLng as number, lat: destLat as number },
-                  );
-                  routeSource = 'demo_unverified';
-                } else if (hasRoute) {
-                  // No destination to rebuild with: connect the hub to the existing route.
-                  routeGeometry = [[sppgLng as number, sppgLat as number], ...v.route_geometry!];
-                  routeSource = 'legacy_unverified';
-                }
+              if ((!startsAtHub || !endsAtSchool || !hasRoute) && hasHub) {
+                // Rebuild clean overland route from Hub to School
+                routeGeometry = createFallbackRoute(
+                  { lng: sppgLng as number, lat: sppgLat as number },
+                  { lng: destLng as number, lat: destLat as number },
+                );
+                routeSource = 'demo_unverified';
               }
 
               if (Array.isArray(routeGeometry)) {
@@ -176,6 +178,7 @@ export const useVehicleStore = create<VehicleState>()(
                 last_lat: sppgLat,
                 destination_lat: destLat,
                 destination_lng: destLng,
+                destination_school_name: destSchoolName || v.destination_school_name,
                 route_source: routeSource ?? 'demo_unverified',
               };
               if (routeGeometry !== undefined) {
@@ -221,7 +224,20 @@ export const useVehicleStore = create<VehicleState>()(
               const idx = state.vehicles.findIndex((v) => v.id === newVehicle.id);
               
               if (payload.eventType === 'INSERT' && idx === -1) {
-                const vehicles = [...state.vehicles, newVehicle];
+                const clLast = (newVehicle.last_lat != null && newVehicle.last_lng != null)
+                  ? clampCoordinatesToLand(newVehicle.last_lat, newVehicle.last_lng, newVehicle.city)
+                  : null;
+                const clDest = (newVehicle.destination_lat != null && newVehicle.destination_lng != null)
+                  ? clampCoordinatesToLand(newVehicle.destination_lat, newVehicle.destination_lng, newVehicle.city)
+                  : null;
+                const safeInsert: Vehicle = {
+                  ...newVehicle,
+                  last_lat: clLast ? clLast.lat : newVehicle.last_lat,
+                  last_lng: clLast ? clLast.lng : newVehicle.last_lng,
+                  destination_lat: clDest ? clDest.lat : newVehicle.destination_lat,
+                  destination_lng: clDest ? clDest.lng : newVehicle.destination_lng,
+                };
+                const vehicles = [...state.vehicles, safeInsert];
                 return { vehicles, hasDemoData: vehicles.length > 0 };
               }
               
@@ -243,6 +259,17 @@ export const useVehicleStore = create<VehicleState>()(
                     route_geometry: existingVehicle.route_geometry || newVehicle.route_geometry,
                   } : {}),
                 };
+
+                if (updatedVehicle.last_lat != null && updatedVehicle.last_lng != null) {
+                  const cl = clampCoordinatesToLand(updatedVehicle.last_lat, updatedVehicle.last_lng, updatedVehicle.city);
+                  updatedVehicle.last_lat = cl.lat;
+                  updatedVehicle.last_lng = cl.lng;
+                }
+                if (updatedVehicle.destination_lat != null && updatedVehicle.destination_lng != null) {
+                  const cl = clampCoordinatesToLand(updatedVehicle.destination_lat, updatedVehicle.destination_lng, updatedVehicle.city);
+                  updatedVehicle.destination_lat = cl.lat;
+                  updatedVehicle.destination_lng = cl.lng;
+                }
 
                 // Trigger alerts for critical status changes
                 if (updatedVehicle.status !== existingVehicle.status) {

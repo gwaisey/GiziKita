@@ -818,6 +818,7 @@ void Promise.allSettled([
         }
 
         const finalPos = this.getPositionAtProgress(route, newProgress);
+        const clampedPos = clampCoordinatesToLand(finalPos.lat, finalPos.lng, v.city);
 
         if (routeFix || newStatus !== v.status
           || Math.abs(newProgress - (v.route_progress ?? 0)) > 0.000001
@@ -825,8 +826,8 @@ void Promise.allSettled([
           const updatedData: any = {
             id: v.id,
             license_plate: v.license_plate, // Required for Supabase upsert constraints
-            last_lat: finalPos.lat,
-            last_lng: finalPos.lng,
+            last_lat: clampedPos.lat,
+            last_lng: clampedPos.lng,
             status: newStatus,
             route_progress: newProgress,
             bearing: newBearing,
