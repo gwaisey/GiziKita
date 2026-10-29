@@ -498,27 +498,29 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
       let targetLat = v.last_lat ?? s.lat;
       let targetLng = v.last_lng ?? s.lng;
 
-      // Idle (Siaga) vehicles are stationed EXACTLY at their SPPG Hub (food pickup point).
+      // Idle (Siaga) vehicles are stationed EXACTLY at the start of their road route (food pickup point).
       if (v.status === 'idle') {
-        const normCity = normalizeRegionName(v.city);
-        const cityVehicles = targetFleet.filter(item => normalizeRegionName(item.city) === normCity);
-        const vehicleIdx = cityVehicles.findIndex(item => item.id === v.id);
-        const sppg = resolveSppgLocation(v.city, sppgUnitsRef.current, {
-          vehicleLat: v.last_lat,
-          vehicleLng: v.last_lng,
-          vehicleIndex: vehicleIdx >= 0 ? vehicleIdx : undefined
-        });
-
-        if (sppg) {
-          const clampedHub = clampCoordinatesToLand(sppg.lat, sppg.lng, v.city);
-          targetLng = clampedHub.lng;
-          targetLat = clampedHub.lat;
-        } else if (v.route_geometry && v.route_geometry.length > 0) {
+        if (v.route_geometry && v.route_geometry.length > 0) {
           targetLng = v.route_geometry[0][0];
           targetLat = v.route_geometry[0][1];
-        } else if (v.last_lng != null && v.last_lat != null) {
-          targetLng = v.last_lng;
-          targetLat = v.last_lat;
+        } else {
+          const normCity = normalizeRegionName(v.city);
+          const cityVehicles = targetFleet.filter(item => normalizeRegionName(item.city) === normCity);
+          const vehicleIdx = cityVehicles.findIndex(item => item.id === v.id);
+          const sppg = resolveSppgLocation(v.city, sppgUnitsRef.current, {
+            vehicleLat: v.last_lat,
+            vehicleLng: v.last_lng,
+            vehicleIndex: vehicleIdx >= 0 ? vehicleIdx : undefined
+          });
+
+          if (sppg) {
+            const clampedHub = clampCoordinatesToLand(sppg.lat, sppg.lng, v.city);
+            targetLng = clampedHub.lng;
+            targetLat = clampedHub.lat;
+          } else if (v.last_lng != null && v.last_lat != null) {
+            targetLng = v.last_lng;
+            targetLat = v.last_lat;
+          }
         }
       }
 
@@ -883,21 +885,29 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
     if (isValidRoute(vehicle.route_geometry)) {
       const fullRoute = vehicle.route_geometry.filter(coord => Array.isArray(coord) && coord.length >= 2);
       if (vehicle.status === 'idle') {
-        // IDLE: Never slice the route! Show the complete route from vehicle to school
+        // IDLE: Route starts at the exact road pickup point; lock origin to route start
+        originLng = fullRoute[0][0];
+        originLat = fullRoute[0][1];
         route = fullRoute;
       } else if (vehicle.route_progress != null && vehicle.route_progress > 0) {
         // MOVING: Show remaining path from current vehicle position to school
         const progressIndex = Math.max(0, Math.floor(vehicle.route_progress));
         const remaining = fullRoute.slice(Math.min(progressIndex + 1, fullRoute.length - 1));
+        const currCoord = VehicleService.getPositionAtProgress(fullRoute, vehicle.route_progress);
+        originLng = currCoord.lng;
+        originLat = currCoord.lat;
         route = [[originLng, originLat], ...remaining];
       } else {
+        originLng = fullRoute[0][0];
+        originLat = fullRoute[0][1];
         route = fullRoute;
       }
     } else {
       // INSTANT FALLBACK ROUTE: strictly from vehicle's current position to destination
       route = createFallbackRoute(
         { lng: originLng, lat: originLat },
-        { lng: destLng, lat: destLat }
+        { lng: destLng, lat: destLat },
+        vehicle.city
       );
     }
 

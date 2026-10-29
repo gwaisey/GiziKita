@@ -54,7 +54,7 @@ export const INDONESIA_514_REGIONS: RegionData[] = [
   { name: 'Kota Ambon', province: 'Maluku', prefix: 'DE', lat: -3.7050, lng: 128.1880, isKota: true }, // Sirimau / Leitimur inland (away from Ambon Bay)
   { name: 'Kota Tual', province: 'Maluku', prefix: 'DE', lat: -5.6333, lng: 132.7333, isKota: true },
   { name: 'Buru', province: 'Maluku', prefix: 'DE', lat: -3.2600, lng: 127.0850, isKota: false },                 // Namlea inland, ibukota Buru (on land)
-  { name: 'Buru Selatan', province: 'Maluku', prefix: 'DE', lat: -3.8580, lng: 126.7330, isKota: false },          // Namrole town center, ibukota Buru Selatan (verified solid land)
+  { name: 'Buru Selatan', province: 'Maluku', prefix: 'DE', lat: -3.8490, lng: 126.7320, isKota: false },          // Namrole town center, ibukota Buru Selatan (verified solid land)
   { name: 'Kepulauan Aru', province: 'Maluku', prefix: 'DE', lat: -5.7656, lng: 134.2289, isKota: false },         // Dobo, ibukota Kep. Aru (on land)
   { name: 'Maluku Barat Daya', province: 'Maluku', prefix: 'DE', lat: -8.1967, lng: 127.9367, isKota: false },    // Tiakur, ibukota MBD (on land)
   { name: 'Maluku Tengah', province: 'Maluku', prefix: 'DE', lat: -3.3080, lng: 128.9560, isKota: false },        // Masohi town center, ibukota (on Seram island land)

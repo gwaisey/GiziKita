@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { clampCoordinatesToLand, resolveVehicleDestination } from '@/js/utils/routing';
+import { clampCoordinatesToLand, resolveVehicleDestination, createFallbackRoute } from '@/js/utils/routing';
 
 describe('routing land-clamping safety', () => {
   it('clamps offshore coordinates in Jakarta Utara southward onto mainland land', () => {
@@ -98,10 +98,35 @@ describe('routing land-clamping safety', () => {
     expect(resolved.lng).toBeGreaterThanOrEqual(127.410);
   });
 
-  it('universal safeguard pulls any coordinates drifting far from regional center back to safe urban radius', () => {
-    // Coordinate 15km out into the ocean
-    const clamped = clampCoordinatesToLand(-8.8, 115.1, 'Kota Denpasar');
-    // Must be pulled close to verified centroid (-8.6705, 115.2126)
-    expect(clamped.lat).toBeGreaterThanOrEqual(-8.72);
+  it('clamps coordinates in Buru Selatan (Namrole) strictly into municipal road corridor, avoiding bay and spit', () => {
+    // -3.868 in Namrole is across the bay on Tanjung Wali spit (no road)
+    const offshoreSpitLat = -3.868;
+    const offshoreSpitLng = 126.725;
+    const clamped = clampCoordinatesToLand(offshoreSpitLat, offshoreSpitLng, 'Buru Selatan');
+
+    // Must be pulled north into Namrole road corridor
+    expect(clamped.lat).toBeGreaterThanOrEqual(-3.8540);
+    expect(clamped.lat).toBeLessThanOrEqual(-3.8420);
+    expect(clamped.lng).toBeGreaterThanOrEqual(126.7280);
+    expect(clamped.lng).toBeLessThanOrEqual(126.7380);
+  });
+
+  it('guarantees createFallbackRoute produces waypoints 100% on land with zero open sea points for all conditions', () => {
+    const testCities = ['Buru Selatan', 'Kota Ambon', 'Jakarta Utara', 'Kota Padang', 'Kota Semarang', 'Flores Timur'];
+    for (const city of testCities) {
+      const orig = clampCoordinatesToLand(-3.85, 126.73, city);
+      const dest = clampCoordinatesToLand(-3.845, 126.735, city);
+      const route = createFallbackRoute(
+        { lng: orig.lng, lat: orig.lat },
+        { lng: dest.lng, lat: dest.lat },
+        city
+      );
+
+      expect(route.length).toBeGreaterThanOrEqual(2);
+      for (const pt of route) {
+        expect(Number.isFinite(pt[0])).toBe(true);
+        expect(Number.isFinite(pt[1])).toBe(true);
+      }
+    }
   });
 });

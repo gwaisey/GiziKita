@@ -40,24 +40,73 @@ export function isValidRoute(route: unknown): route is number[][] {
 export function createFallbackRoute(
   origin: { lng: number; lat: number },
   destination: { lng: number; lat: number },
+  cityName?: string | null
 ): number[][] {
   const p1 = [origin.lng, origin.lat];
   const p4 = [destination.lng, destination.lat];
   const dLng = p4[0] - p1[0];
   const dLat = p4[1] - p1[1];
   if (Math.abs(dLng) < 0.00001 && Math.abs(dLat) < 0.00001) {
-    // If destination is coincident with origin, create a small local delivery route
+    const clOrig = clampCoordinatesToLand(origin.lat, origin.lng, cityName);
     return [
-      [origin.lng, origin.lat],
-      [origin.lng + 0.002, origin.lat + 0.001],
-      [origin.lng + 0.003, origin.lat - 0.001],
-      [origin.lng + 0.004, origin.lat],
+      [clOrig.lng, clOrig.lat],
+      [clOrig.lng + 0.0015, clOrig.lat + 0.001],
+      [clOrig.lng + 0.0025, clOrig.lat - 0.0008],
+      [clOrig.lng + 0.0035, clOrig.lat],
     ];
   }
-  const offLng = -dLat * 0.15;
-  const offLat = dLng * 0.15;
-  const p2 = [p1[0] + dLng * 0.33 + offLng, p1[1] + dLat * 0.33 + offLat];
-  const p3 = [p1[0] + dLng * 0.66 - offLng, p1[1] + dLat * 0.66 - offLat];
+
+  // Calculate inland direction bias based on city coastline orientation
+  const normCity = (cityName || '').toLowerCase();
+  let inlandBiasLng = 0;
+  let inlandBiasLat = 0;
+
+  // North coast (Java North, Kupang, etc.): inland is South (negative lat)
+  if (normCity.includes('jakarta') || normCity.includes('surabaya') || normCity.includes('semarang') || normCity.includes('cirebon') || (normCity.includes('kota') && normCity.includes('kupang'))) {
+    inlandBiasLat = -0.004;
+  }
+  // South coast (Java South, Bali South, etc.): inland is North (positive lat)
+  else if (normCity.includes('sukabumi') || normCity.includes('kebumen') || normCity.includes('cilacap') || normCity.includes('bantul') || normCity.includes('malang')) {
+    inlandBiasLat = 0.004;
+  }
+  // West coast (Padang, Bengkulu, Makassar, Sorong): inland is East (positive lng)
+  else if (normCity.includes('padang') || normCity.includes('bengkulu') || normCity.includes('makassar') || normCity.includes('sorong') || normCity.includes('aceh')) {
+    inlandBiasLng = 0.004;
+  }
+  // East coast (Balikpapan, Kendari, Tidore, Ternate, Samarinda): inland is West (negative lng)
+  else if (normCity.includes('balikpapan') || normCity.includes('kendari') || normCity.includes('tidore') || normCity.includes('ternate') || normCity.includes('samarinda')) {
+    inlandBiasLng = -0.004;
+  }
+  // Bay cities (Namrole / Buru Selatan, Ambon, Sikka):
+  else if (normCity.includes('buru') && normCity.includes('selatan')) {
+    inlandBiasLat = 0.005; // North into town center away from bay
+    inlandBiasLng = 0.002;
+  }
+  else if (normCity.includes('ambon')) {
+    inlandBiasLat = -0.004; // South-East into Leitimur away from bay
+    inlandBiasLng = 0.003;
+  }
+
+  const p2RawLng = p1[0] + dLng * 0.33 + inlandBiasLng;
+  const p2RawLat = p1[1] + dLat * 0.33 + inlandBiasLat;
+  const p3RawLng = p1[0] + dLng * 0.66 + inlandBiasLng;
+  const p3RawLat = p1[1] + dLat * 0.66 + inlandBiasLat;
+
+  // Strict land clamping on all intermediate waypoints
+  const clP2 = clampCoordinatesToLand(p2RawLat, p2RawLng, cityName);
+  const clP3 = clampCoordinatesToLand(p3RawLat, p3RawLng, cityName);
+
+  const p2 = [clP2.lng, clP2.lat];
+  const p3 = [clP3.lng, clP3.lat];
+
+  // Guarantee no point in open marine sea
+  if (isCoordinateInOpenSea(p2[1], p2[0]) || isCoordinateInOpenSea(p3[1], p3[0])) {
+    const reg = cityName ? findRegionByName(cityName) : null;
+    const centerLng = reg?.lng ?? p1[0];
+    const centerLat = reg?.lat ?? p1[1];
+    return [p1, [centerLng, centerLat], p4];
+  }
+
   return [p1, p2, p3, p4];
 }
 
@@ -316,12 +365,15 @@ export function clampCoordinatesToLand(
   }
 
   // 12F. BURU SELATAN (NAMROLE):
-  // Namrole town center: lat -3.8580, lng 126.7330. Banda Sea is to the South and East.
+  // Namrole municipal road network is strictly between lat -3.8540 to -3.8420, lng 126.7280 to 126.7380.
+  // Teluk Namrole bay is to the South (lat < -3.8550) and West (lng < 126.7270).
+  // Any point projecting south towards the bay or across to Tanjung Wali is strictly pulled
+  // inland North-East into the solid town center road network (RSUD Namrole / Desa Labuang corridor).
   if (normCity.includes('buru') && normCity.includes('selatan')) {
     let safeLat = lat;
     let safeLng = lng;
-    if (safeLat > -3.840 || safeLat < -3.875) safeLat = -3.855;
-    if (safeLng > 126.740 || safeLng < 126.720) safeLng = 126.732;
+    if (safeLat < -3.8540 || safeLat > -3.8420) safeLat = -3.8490 - (Math.abs(safeLat) % 0.004);
+    if (safeLng < 126.7280 || safeLng > 126.7380) safeLng = 126.7320 + (Math.abs(safeLng) % 0.004);
     return { lat: safeLat, lng: safeLng };
   }
 

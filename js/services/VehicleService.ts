@@ -104,7 +104,7 @@ class VehicleService {
     }
     
     try {
-      const url = `https://api.mapbox.com/directions/v5/mapbox/driving/${start[0]},${start[1]};${end[0]},${end[1]}?geometries=geojson&overview=full&exclude=ferry&access_token=${mapboxToken}`;
+      const url = `https://api.mapbox.com/directions/v5/mapbox/driving/${start[0]},${start[1]};${end[0]},${end[1]}?geometries=geojson&overview=full&exclude=ferry&radiuses=150;150&access_token=${mapboxToken}`;
       const res = await fetch(url);
       if (!res.ok) throw new Error(`Mapbox API responded with status ${res.status}`);
       const json = await res.json();
@@ -138,7 +138,7 @@ class VehicleService {
 
   /** Update route geometry for a vehicle in store and Supabase database */
   async updateVehicleRoute(vehicleId: string, route: VerifiedDrivingRoute) {
-    // The directions geometry is our single source of truth.  Mapbox waypoint
+    // The directions geometry is our single source of truth. Mapbox waypoint
     // snapping is useful metadata, but using a different coordinate for the
     // marker than the line endpoint creates a visible "last mile" over water.
     const [snappedStartLng, snappedStartLat] = route.coordinates[0] as [number, number];
@@ -154,14 +154,19 @@ class VehicleService {
     const isIdle = vehicle?.status === 'idle';
     const anchorLng = vehicle?.route_geometry?.[0]?.[0] ?? vehicle?.last_lng ?? (isIdle && sppgLoc ? sppgLoc.lng : snappedStartLng);
     const anchorLat = vehicle?.route_geometry?.[0]?.[1] ?? vehicle?.last_lat ?? (isIdle && sppgLoc ? sppgLoc.lat : snappedStartLat);
-    const activeLng = anchorLng;
-    const activeLat = anchorLat;
+    let activeLng = anchorLng;
+    let activeLat = anchorLat;
 
-    // Continuity guarantee: Mapbox snaps the route start to the nearest road. Prepend the anchor
-    // so the vehicle drives anchor -> road instead of jumping to the snapped point.
+    // Continuity guarantee: Mapbox snaps the route start to the nearest road.
+    // If the anchor was placed off-road or across water (gap > 0.0008, ~90m), snap the vehicle
+    // directly onto the valid road network start point to eliminate straight chords crossing water!
     let routeCoordinates: number[][] = route.coordinates;
     const gap = Math.hypot(snappedStartLng - anchorLng, snappedStartLat - anchorLat);
-    if (gap > 0.00005 && gap < 0.02) {
+    if (gap > 0.0008) {
+      activeLng = snappedStartLng;
+      activeLat = snappedStartLat;
+      routeCoordinates = route.coordinates;
+    } else if (gap > 0.00005) {
       routeCoordinates = [[anchorLng, anchorLat], ...route.coordinates];
     }
 
