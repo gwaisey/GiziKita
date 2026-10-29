@@ -7,7 +7,7 @@ import 'mapbox-gl/dist/mapbox-gl.css';
 import type { FeatureCollection, LineString } from 'geojson';
 import { useVehicleStore, Vehicle } from '@/js/store/vehicleStore';
 import { useQuery } from '@tanstack/react-query';
-import { INDONESIA_514_REGIONS, resolveSppgLocation, normalizeRegionName } from '@/js/data/indonesia_regions';
+import { INDONESIA_514_REGIONS, resolveSppgLocation, normalizeRegionName, findRegionByName } from '@/js/data/indonesia_regions';
 import VehicleService, { VEHICLE_STATUS_META } from '@/js/services/VehicleService';
 import { createFallbackRoute, isValidRoute, resolveVehicleDestination, clampCoordinatesToLand, isCoordinateInOpenSea } from '@/js/utils/routing';
 import { AlertTriangle, MapPin, Navigation, School, Trash2, User, X, Zap } from 'lucide-react';
@@ -88,13 +88,22 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
 
       // Sanitize all schools against verified regional land coordinates
       const sanitizedSchools = (schoolsResult.data ?? []).map((school: any) => {
-        const clamped = clampCoordinatesToLand(school.lat, school.lng, school.city || school.province);
+        const matched = findRegionByName(school.city || school.name);
+        const baseLat = (Number.isFinite(school.lat) && school.lat != null) ? school.lat : matched?.lat;
+        const baseLng = (Number.isFinite(school.lng) && school.lng != null) ? school.lng : matched?.lng;
+        if (!Number.isFinite(baseLat) || !Number.isFinite(baseLng)) {
+          return null;
+        }
+        const clamped = clampCoordinatesToLand(baseLat, baseLng, school.city || school.province || school.name);
+        if (isCoordinateInOpenSea(clamped.lat, clamped.lng)) {
+          return null;
+        }
         return {
           ...school,
           lat: clamped.lat,
           lng: clamped.lng,
         };
-      });
+      }).filter((s: any): s is NonNullable<typeof s> => s !== null && !isCoordinateInOpenSea(s.lat, s.lng));
 
       return { sppgUnits: sanitizedHubs, schools: sanitizedSchools };
     },
@@ -382,6 +391,9 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
           if (norm !== normSelected && normalizeRegionName(s.province) !== normSelected) continue;
         }
         const clamped = clampCoordinatesToLand(s.lat, s.lng, s.city || s.province);
+        if (isCoordinateInOpenSea(clamped.lat, clamped.lng) || offshoreMarkerIds.has(`school:${s.id ?? s.name}`)) {
+          continue;
+        }
         schoolMap.set(s.name, {
           name: s.name,
           province: s.province,

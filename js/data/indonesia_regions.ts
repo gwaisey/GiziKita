@@ -85,9 +85,24 @@ export const INDONESIA_514_REGIONS: RegionData[] = [
   
   // --- SUMATERA ---
   { name: 'Kota Banda Aceh', province: 'Aceh', prefix: 'BL', lat: 5.5483, lng: 95.3238, isKota: true },
+  { name: 'Pidie', province: 'Aceh', prefix: 'BL', lat: 5.3812, lng: 95.9572, isKota: false },
   { name: 'Kota Medan', province: 'Sumatera Utara', prefix: 'BK', lat: 3.5952, lng: 98.6722, isKota: true },
-  { name: 'Kota Palembang', province: 'Sumatera Selatan', prefix: 'BG', lat: -2.9761, lng: 104.7754, isKota: true },
+  { name: 'Kota Binjai', province: 'Sumatera Utara', prefix: 'BK', lat: 3.6006, lng: 98.4854, isKota: true },
+  { name: 'Kota Padang', province: 'Sumatera Barat', prefix: 'BA', lat: -0.9471, lng: 100.4172, isKota: true },
+  { name: 'Kota Bukittinggi', province: 'Sumatera Barat', prefix: 'BA', lat: -0.3056, lng: 100.3692, isKota: true },
+  { name: 'Kota Pekanbaru', province: 'Riau', prefix: 'BM', lat: 0.5071, lng: 101.4478, isKota: true },
   { name: 'Kota Batam', province: 'Kepulauan Riau', prefix: 'BP', lat: 1.1301, lng: 104.0531, isKota: true },
+  { name: 'Kota Jambi', province: 'Jambi', prefix: 'BH', lat: -1.6101, lng: 103.6131, isKota: true },
+  { name: 'Kota Bengkulu', province: 'Bengkulu', prefix: 'BD', lat: -3.7928, lng: 102.2608, isKota: true },
+  { name: 'Kota Palembang', province: 'Sumatera Selatan', prefix: 'BG', lat: -2.9761, lng: 104.7754, isKota: true },
+  { name: 'Kota Pangkal Pinang', province: 'Kepulauan Bangka Belitung', prefix: 'BN', lat: -2.1316, lng: 106.1169, isKota: true },
+  { name: 'Kota Bandar Lampung', province: 'Lampung', prefix: 'BE', lat: -5.4292, lng: 105.2611, isKota: true },
+
+  // --- JAWA TAMBAHAN ---
+  { name: 'Kota Tangerang', province: 'Banten', prefix: 'B', lat: -6.1783, lng: 106.6319, isKota: true },
+  { name: 'Sukabumi', province: 'Jawa Barat', prefix: 'F', lat: -6.9277, lng: 106.9300, isKota: false },
+  { name: 'Kebumen', province: 'Jawa Tengah', prefix: 'AA', lat: -7.6710, lng: 109.6544, isKota: false },
+  { name: 'Bojonegoro', province: 'Jawa Timur', prefix: 'S', lat: -7.1502, lng: 111.8818, isKota: false },
 
   // --- PAPUA ---
   { name: 'Kota Jayapura', province: 'Papua', prefix: 'PA', lat: -2.5916, lng: 140.6690, isKota: true },
@@ -102,7 +117,9 @@ export const INDONESIA_514_REGIONS: RegionData[] = [
   // --- KALIMANTAN ---
   { name: 'Kota Pontianak', province: 'Kalimantan Barat', prefix: 'KB', lat: -0.0263, lng: 109.3425, isKota: true },
   { name: 'Kota Banjarmasin', province: 'Kalimantan Selatan', prefix: 'DA', lat: -3.3167, lng: 114.5900, isKota: true },
-  { name: 'Kota Samarinda', province: 'Kalimantan Timur', prefix: 'KT', lat: -0.4948, lng: 117.1436, isKota: true }
+  { name: 'Kota Samarinda', province: 'Kalimantan Timur', prefix: 'KT', lat: -0.4948, lng: 117.1436, isKota: true },
+  { name: 'Kota Balikpapan', province: 'Kalimantan Timur', prefix: 'KT', lat: -1.2379, lng: 116.8529, isKota: true },
+  { name: 'Kota Tarakan', province: 'Kalimantan Utara', prefix: 'KU', lat: 3.3273, lng: 117.5925, isKota: true }
 ];
 
 /**

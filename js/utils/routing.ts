@@ -124,10 +124,30 @@ export function clampCoordinatesToLand(
   city?: string | null
 ): { lat: number; lng: number } {
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
-    return { lat: -6.2, lng: 106.8 };
+    if (city) {
+      const reg = findRegionByName(city);
+      if (reg && Number.isFinite(reg.lat) && Number.isFinite(reg.lng)) {
+        return { lat: reg.lat, lng: reg.lng };
+      }
+    }
+    return { lat: -6.2088, lng: 106.8456 };
   }
 
   const normCity = (city || '').toLowerCase().replace(/^(kota|kabupaten|kab\.|adm\.)\s+/i, '').trim();
+
+  // If city is specified, check if coordinates are severely displaced from the city's verified land center (> 0.45 deg / ~50 km).
+  // This occurs when a fallback or default from another region is passed in.
+  // Immediately reset coordinates to the verified administrative land centroid of this region.
+  if (city) {
+    const reg = findRegionByName(city);
+    if (reg && Number.isFinite(reg.lat) && Number.isFinite(reg.lng)) {
+      const distFromCentroid = Math.hypot(lat - reg.lat, lng - reg.lng);
+      if (distFromCentroid > 0.45) {
+        lat = reg.lat;
+        lng = reg.lng;
+      }
+    }
+  }
 
   // 1. KOTA SORONG / SORONG:
   // Coastline: Dampier Strait / Pacific is to the West (lng < 131.255).
@@ -501,6 +521,12 @@ export function clampCoordinatesToLand(
 
   // Universal open sea safety net
   if (isCoordinateInOpenSea(lat, lng)) {
+    if (city) {
+      const reg = findRegionByName(city);
+      if (reg && Number.isFinite(reg.lat) && Number.isFinite(reg.lng)) {
+        return { lat: reg.lat, lng: reg.lng };
+      }
+    }
     return { lat: -6.2088, lng: 106.8456 }; // Default to central Jakarta mainland
   }
 
