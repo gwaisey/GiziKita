@@ -1,7 +1,7 @@
 import { supabase } from '@/js/core/SupabaseClient';
 import { useVehicleStore, Vehicle, VehicleStatus, VerifiedDrivingRoute, setLocalSimulationActive } from '@/js/store/vehicleStore';
 import { resolveSppgLocation, normalizeRegionName } from '@/js/data/indonesia_regions';
-import { createFallbackRoute, isValidRoute, clampCoordinatesToLand } from '@/js/utils/routing';
+import { createFallbackRoute, isValidRoute, clampCoordinatesToLand, distanceKm } from '@/js/utils/routing';
 
 // Status metadata: labels, colours, descriptions
 export const VEHICLE_STATUS_META: Record<VehicleStatus, { label: string; color: string; description: string }> = {
@@ -302,10 +302,8 @@ class VehicleService {
           sppgToSeed.set(`${station.name}-${region.province}-${i}`, station);
 
           // Demo school coordinates: ensure they always project inland on solid ground
-          const isIslandOrCoast = isEastCoast || isWestCoast || isNorthCoast || isSouthCoast;
-          const destinationRadius = isIslandOrCoast
-            ? 0.006 + Math.random() * 0.006 // ~700m - 1.3km for islands/coastal towns
-            : 0.010 + Math.random() * 0.012; // ~1.1km - 2.4km for inland mainland
+          // and strictly within 1.0 - 3.0 km from the SPPG food pickup point
+          const destinationRadius = 0.013 + Math.random() * 0.009; // ~1.4 km - 2.4 km
 
           const dLat = region.lat - station.lat;
           const dLng = region.lng - station.lng;
@@ -326,11 +324,34 @@ class VehicleService {
             destinationAngle = Math.random() * Math.PI * 2;
           }
 
-          const rawDest = {
+          let rawDest = {
             lng: station.lng + Math.cos(destinationAngle) * destinationRadius,
             lat: station.lat + Math.sin(destinationAngle) * destinationRadius,
           };
-          const destination = clampCoordinatesToLand(rawDest.lat, rawDest.lng, region.name);
+          let destination = clampCoordinatesToLand(rawDest.lat, rawDest.lng, region.name);
+          let dist = distanceKm(station.lat, station.lng, destination.lat, destination.lng);
+
+          if (dist < 1.0) {
+            for (const step of [0.015, 0.018, 0.022]) {
+              const alt = clampCoordinatesToLand(
+                station.lat + Math.sin(destinationAngle) * step,
+                station.lng + Math.cos(destinationAngle) * step,
+                region.name
+              );
+              const altDist = distanceKm(station.lat, station.lng, alt.lat, alt.lng);
+              if (altDist >= 1.0 && altDist <= 3.0) {
+                destination = alt;
+                break;
+              }
+            }
+          } else if (dist > 3.0) {
+            const scale = 2.4 / dist;
+            destination = clampCoordinatesToLand(
+              station.lat + (destination.lat - station.lat) * scale,
+              station.lng + (destination.lng - station.lng) * scale,
+              region.name
+            );
+          }
 
           const school = {
             name: `Sekolah Bina Gizi ${region.name} #${i + 1}`,

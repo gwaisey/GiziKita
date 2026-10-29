@@ -381,22 +381,52 @@ export function resolveVehicleDestination(
     }
   }
 
-  // 3. Deterministic regional offset from SPPG or vehicle position
+  // SPPG Hub is the food pickup point
   const baseLat = sppgFallback?.lat ?? (Number.isFinite(vehicle.last_lat) ? (vehicle.last_lat as number) : -6.2);
   const baseLng = sppgFallback?.lng ?? (Number.isFinite(vehicle.last_lng) ? (vehicle.last_lng as number) : 106.8);
 
+  // 1. Direct verified destination coordinates:
+  // Must be clamped to land AND strictly within 1.0 - 3.0 KM from SPPG pickup point!
+  if (
+    vehicle.destination_lat != null &&
+    vehicle.destination_lng != null &&
+    Number.isFinite(vehicle.destination_lat) &&
+    Number.isFinite(vehicle.destination_lng)
+  ) {
+    const clamped = clampCoordinatesToLand(vehicle.destination_lat, vehicle.destination_lng, vehicle.city);
+    const dKm = distanceKm(baseLat, baseLng, clamped.lat, clamped.lng);
+    if (dKm >= 1.0 && dKm <= 3.0) {
+      return { name, lat: clamped.lat, lng: clamped.lng };
+    }
+  }
+
+  // 2. Extract from route endpoint if route geometry exists
+  if (isValidRoute(vehicle.route_geometry)) {
+    const lastPoint = vehicle.route_geometry[vehicle.route_geometry.length - 1];
+    if (isValidCoord(lastPoint)) {
+      const clamped = clampCoordinatesToLand(lastPoint[1], lastPoint[0], vehicle.city);
+      const dKm = distanceKm(baseLat, baseLng, clamped.lat, clamped.lng);
+      if (dKm >= 1.0 && dKm <= 3.0) {
+        return { name, lat: clamped.lat, lng: clamped.lng };
+      }
+    }
+  }
+
+  // 3. Deterministic regional offset strictly within 1.0 - 3.0 KM from SPPG:
   const idStr = vehicle.id || vehicle.city || 'default';
   const hash = Math.abs(idStr.split('').reduce((acc, c) => acc + c.charCodeAt(0), 0));
   
   // Deterministic inland bias for ALL coast types:
   const normCity = (vehicle.city || '').toLowerCase();
-  const isNorthCoast = normCity.includes('jakarta') || normCity.includes('surabaya') || normCity.includes('semarang') || normCity.includes('cirebon') || normCity.includes('utara') || normCity.includes('kupang') || normCity.includes('jayapura') || normCity.includes('pekalongan') || normCity.includes('tegal') || normCity.includes('pasuruan') || normCity.includes('probolinggo') || normCity.includes('tuban') || normCity.includes('gresik') || normCity.includes('medan') || normCity.includes('lhokseumawe');
+  const isNorthCoast = normCity.includes('jakarta') || normCity.includes('surabaya') || normCity.includes('semarang') || normCity.includes('cirebon') || (normCity.includes('jakarta') && normCity.includes('utara')) || (normCity.includes('kota') && normCity.includes('kupang')) || normCity.includes('jayapura') || normCity.includes('pekalongan') || normCity.includes('tegal') || normCity.includes('pasuruan') || normCity.includes('probolinggo') || normCity.includes('tuban') || normCity.includes('gresik') || normCity.includes('medan') || normCity.includes('lhokseumawe');
   const isWestCoast = normCity.includes('sorong') || normCity.includes('makassar') || normCity.includes('padang') || normCity.includes('bengkulu') || normCity.includes('singkawang') || normCity.includes('manado') || normCity.includes('mataram') || normCity.includes('aceh') || normCity.includes('sibolga') || normCity.includes('meulaboh') || normCity.includes('pariaman');
   const isEastCoast = normCity.includes('tidore') || normCity.includes('ternate') || normCity.includes('balikpapan') || normCity.includes('kendari') || normCity.includes('denpasar') || normCity.includes('sanur') || normCity.includes('bontang') || normCity.includes('samarinda') || normCity.includes('gunungsitoli') || normCity.includes('ambon') || normCity.includes('tual') || normCity.includes('bitung');
   const isSouthCoast = normCity.includes('cilacap') || normCity.includes('kebumen') || normCity.includes('pacitan') || normCity.includes('gunungkidul') || normCity.includes('bantul') || normCity.includes('sukabumi') || normCity.includes('garut') || normCity.includes('tasikmalaya') || normCity.includes('pangandaran') || normCity.includes('jember') || normCity.includes('banyuwangi') || normCity.includes('blitar') || normCity.includes('malang');
 
   let angle: number;
-  if (isNorthCoast) {
+  if (normCity.includes('ambon')) {
+    angle = Math.PI / 4 + (((hash % 8) - 4) / 8) * (Math.PI / 4); // Aim North-East into Leitimur mainland
+  } else if (isNorthCoast) {
     angle = -Math.PI / 2 + (((hash % 8) - 4) / 8) * (Math.PI / 3); // Aim South into mainland
   } else if (isWestCoast) {
     angle = 0 + (((hash % 8) - 4) / 8) * (Math.PI / 3); // Aim East into mainland
@@ -408,14 +438,39 @@ export function resolveVehicleDestination(
     angle = ((hash % 16) / 16) * Math.PI * 2;
   }
 
-  const isCoastalOrIsland = isNorthCoast || isWestCoast || isEastCoast || isSouthCoast;
-  const radius = isCoastalOrIsland
-    ? 0.006 + ((hash % 4) * 0.0015) // ~700m - 1.2km (stays safely on land)
-    : 0.010 + ((hash % 4) * 0.002);  // ~1.1km - 1.8km
+  // Target distance: strictly 1.4 - 2.4 KM (0.013° - 0.022°)
+  const targetRadius = 0.013 + ((hash % 6) * 0.0018);
 
-  const rawLat = baseLat + Math.sin(angle) * radius;
-  const rawLng = baseLng + Math.cos(angle) * radius;
-  const clamped = clampCoordinatesToLand(rawLat, rawLng, vehicle.city);
+  let rawLat = baseLat + Math.sin(angle) * targetRadius;
+  let rawLng = baseLng + Math.cos(angle) * targetRadius;
+  let clamped = clampCoordinatesToLand(rawLat, rawLng, vehicle.city);
+  let dist = distanceKm(baseLat, baseLng, clamped.lat, clamped.lng);
+
+  // Strict 1.0 - 3.0 KM post-clamp validation
+  if (dist < 1.0) {
+    // Too close: try alternative inland angles
+    const altAngles = [angle, angle + Math.PI / 2, angle - Math.PI / 2, angle + Math.PI];
+    for (const a of altAngles) {
+      for (const step of [0.015, 0.018, 0.022]) {
+        const altLat = baseLat + Math.sin(a) * step;
+        const altLng = baseLng + Math.cos(a) * step;
+        const altClamped = clampCoordinatesToLand(altLat, altLng, vehicle.city);
+        const altDist = distanceKm(baseLat, baseLng, altClamped.lat, altClamped.lng);
+        if (altDist >= 1.0 && altDist <= 3.0) {
+          clamped = altClamped;
+          dist = altDist;
+          break;
+        }
+      }
+      if (dist >= 1.0 && dist <= 3.0) break;
+    }
+  } else if (dist > 3.0) {
+    // Too far: scale back towards SPPG base
+    const scale = 2.4 / dist;
+    const scaledLat = baseLat + (clamped.lat - baseLat) * scale;
+    const scaledLng = baseLng + (clamped.lng - baseLng) * scale;
+    clamped = clampCoordinatesToLand(scaledLat, scaledLng, vehicle.city);
+  }
 
   return {
     name,

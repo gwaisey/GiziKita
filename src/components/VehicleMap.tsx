@@ -9,7 +9,7 @@ import { useVehicleStore, Vehicle } from '@/js/store/vehicleStore';
 import { useQuery } from '@tanstack/react-query';
 import { INDONESIA_514_REGIONS, resolveSppgLocation, normalizeRegionName } from '@/js/data/indonesia_regions';
 import VehicleService, { VEHICLE_STATUS_META } from '@/js/services/VehicleService';
-import { createFallbackRoute, isValidRoute, isValidCoord, resolveVehicleDestination, clampCoordinatesToLand } from '@/js/utils/routing';
+import { createFallbackRoute, isValidRoute, resolveVehicleDestination, clampCoordinatesToLand } from '@/js/utils/routing';
 import { AlertTriangle, MapPin, Navigation, School, Trash2, User, X, Zap } from 'lucide-react';
 import { supabase } from '@/js/core/SupabaseClient';
 import { queryKeys } from '@/src/lib/queryKeys';
@@ -156,8 +156,9 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
         vehicleLng: vehicle.last_lng,
         vehicleIndex: vehicleIdx >= 0 ? vehicleIdx : undefined
       });
-      startLng = vehicle.route_geometry?.[0]?.[0] ?? vehicle.last_lng ?? sppg?.lng;
-      startLat = vehicle.route_geometry?.[0]?.[1] ?? vehicle.last_lat ?? sppg?.lat;
+      // Parked: the journey begins at the assigned regional SPPG Hub (food pickup point)
+      startLng = sppg?.lng ?? vehicle.route_geometry?.[0]?.[0] ?? vehicle.last_lng;
+      startLat = sppg?.lat ?? vehicle.route_geometry?.[0]?.[1] ?? vehicle.last_lat;
     } else {
       // Already moving: continue from where the vehicle is right now (no teleporting)
       startLng = vehicle.last_lng;
@@ -178,16 +179,16 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
     );
     if (!activeRoute) return false;
 
-    // Minimum distance check: If route is too short (< 800m, e.g. snapped destination to coast),
-    // probe landward angles to ensure school is at a realistic delivery distance (1.2 - 3.0 km)
-    if (activeRoute.distance != null && activeRoute.distance < 800) {
-      const probeAngles = [0, Math.PI / 2, Math.PI, (3 * Math.PI) / 2, Math.PI / 4, (3 * Math.PI) / 4];
+    // Strict 1.0 - 3.0 KM distance check (1000m - 3000m):
+    // If route is too short (< 1 km) or too long (> 3 km), probe alternative landward angles
+    if (activeRoute.distance != null && (activeRoute.distance < 1000 || activeRoute.distance > 3000)) {
+      const probeAngles = [0, Math.PI / 2, Math.PI, (3 * Math.PI) / 2, Math.PI / 4, (3 * Math.PI) / 4, (5 * Math.PI) / 4, (7 * Math.PI) / 4];
       for (const angle of probeAngles) {
         const rawAltLng = startLng + Math.cos(angle) * 0.018; // ~2km
         const rawAltLat = startLat + Math.sin(angle) * 0.018;
         const clampedAlt = clampCoordinatesToLand(rawAltLat, rawAltLng, vehicle.city);
         const retryRoute = await VehicleService.fetchMapboxRoute([startLng, startLat], [clampedAlt.lng, clampedAlt.lat]);
-        if (retryRoute && retryRoute.distance != null && retryRoute.distance >= 1000) {
+        if (retryRoute && retryRoute.distance != null && retryRoute.distance >= 1000 && retryRoute.distance <= 3000) {
           activeRoute = retryRoute;
           break;
         }
@@ -469,31 +470,27 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
       let targetLat = v.last_lat ?? s.lat;
       let targetLng = v.last_lng ?? s.lng;
 
-      // Idle (Siaga) vehicles are stationed EXACTLY at their hub. For routed vehicles the
-      // route origin IS the hub, which guarantees no jump when the simulation departs.
+      // Idle (Siaga) vehicles are stationed EXACTLY at their SPPG Hub (food pickup point).
       if (v.status === 'idle') {
-        const origin = v.route_geometry && v.route_geometry.length > 0
-          ? v.route_geometry[0]
-          : null;
-        if (origin) {
-          targetLng = origin[0];
-          targetLat = origin[1];
+        const normCity = normalizeRegionName(v.city);
+        const cityVehicles = targetFleet.filter(item => normalizeRegionName(item.city) === normCity);
+        const vehicleIdx = cityVehicles.findIndex(item => item.id === v.id);
+        const sppg = resolveSppgLocation(v.city, sppgUnitsRef.current, {
+          vehicleLat: v.last_lat,
+          vehicleLng: v.last_lng,
+          vehicleIndex: vehicleIdx >= 0 ? vehicleIdx : undefined
+        });
+
+        if (sppg) {
+          const clampedHub = clampCoordinatesToLand(sppg.lat, sppg.lng, v.city);
+          targetLng = clampedHub.lng;
+          targetLat = clampedHub.lat;
+        } else if (v.route_geometry && v.route_geometry.length > 0) {
+          targetLng = v.route_geometry[0][0];
+          targetLat = v.route_geometry[0][1];
         } else if (v.last_lng != null && v.last_lat != null) {
           targetLng = v.last_lng;
           targetLat = v.last_lat;
-        } else {
-          const normCity = normalizeRegionName(v.city);
-          const cityVehicles = targetFleet.filter(item => normalizeRegionName(item.city) === normCity);
-          const vehicleIdx = cityVehicles.findIndex(item => item.id === v.id);
-          const sppg = resolveSppgLocation(v.city, sppgUnitsRef.current, {
-            vehicleLat: v.last_lat,
-            vehicleLng: v.last_lng,
-            vehicleIndex: vehicleIdx >= 0 ? vehicleIdx : undefined
-          });
-          if (sppg) {
-            targetLng = sppg.lng;
-            targetLat = sppg.lat;
-          }
         }
       }
 
@@ -840,13 +837,9 @@ export default function VehicleMap({ onVehicleSelect, selectedVehicle }: Vehicle
     let originLat: number;
 
     if (vehicle.status === 'idle') {
-      if (vehicle.route_geometry && vehicle.route_geometry.length > 0 && isValidCoord(vehicle.route_geometry[0])) {
-        originLng = vehicle.route_geometry[0][0];
-        originLat = vehicle.route_geometry[0][1];
-      } else {
-        originLng = vehicle.last_lng ?? sppg?.lng ?? destLng;
-        originLat = vehicle.last_lat ?? sppg?.lat ?? destLat;
-      }
+      // Parked vehicles ALWAYS start at the SPPG Hub (food pickup point)
+      originLng = sppg?.lng ?? vehicle.route_geometry?.[0]?.[0] ?? vehicle.last_lng ?? destLng;
+      originLat = sppg?.lat ?? vehicle.route_geometry?.[0]?.[1] ?? vehicle.last_lat ?? destLat;
     } else {
       originLng = vehicle.last_lng ?? destLng;
       originLat = vehicle.last_lat ?? destLat;
